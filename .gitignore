@@ -1,0 +1,22 @@
+# Java
+backend/target/
+*.class
+*.jar
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env
+.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+backend/logs/
+
+# Docker volumes
+postgres_data/
