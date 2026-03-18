@@ -20,20 +20,20 @@ export interface Artwork {
   taskName: string;
   externalId?: string;
   title: string;
-  artist?: string;
-  medium?: string;
-  format?: string;
-  dimensions?: string;
-  valuation?: string;
-  year?: string;       // 拍卖日期
-  collection?: string; // 拍卖公司
-  auctionName?: string;
-  auctionSession?: string;
-  auctionLocation?: string;
-  previewTime?: string;
-  previewLocation?: string;
+  lotNumber?: string;      // 拍品编号
+  artist?: string;         // 作者
+  medium?: string;         // 材质
+  format?: string;         // 形制
+  dimensions?: string;     // 尺寸
+  valuation?: string;      // 估价
+  auctionHouse?: string;   // 拍卖公司
+  auctionName?: string;    // 拍卖会
+  auctionSession?: string; // 拍卖专场
+  auctionDate?: string;    // 拍卖日期
+  auctionLocation?: string;// 拍卖地点
+  previewTime?: string;    // 预展时间
+  previewLocation?: string;// 预展地点
   description?: string;
-  category?: string;
   imageUrl?: string;
   sourceUrl?: string;
   createdAt: string;

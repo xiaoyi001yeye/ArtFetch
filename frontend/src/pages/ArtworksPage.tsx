@@ -68,7 +68,8 @@ export default function ArtworksPage() {
       taskId: values.taskId || undefined,
       keyword: values.keyword || undefined,
       artist: values.artist || undefined,
-      year: values.year || undefined,
+      auctionDate: values.auctionDate || undefined,
+      lotNumber: values.lotNumber || undefined,
     })
   }
 
@@ -108,9 +109,15 @@ export default function ArtworksPage() {
       ),
     },
     {
+      title: '编号',
+      dataIndex: 'lotNumber',
+      width: 80,
+      render: (v) => v || '—',
+    },
+    {
       title: '艺术家',
       dataIndex: 'artist',
-      width: 160,
+      width: 120,
       ellipsis: true,
       render: (v) => v || <span style={{ color: '#aaa' }}>未知</span>,
     },
@@ -122,15 +129,22 @@ export default function ArtworksPage() {
       render: (v) => v ? <Tooltip title={v}>{v}</Tooltip> : '—',
     },
     {
+      title: '拍卖公司',
+      dataIndex: 'auctionHouse',
+      width: 130,
+      ellipsis: true,
+      render: (v) => v ? <Tooltip title={v}>{v}</Tooltip> : '—',
+    },
+    {
       title: '拍卖日期',
-      dataIndex: 'year',
+      dataIndex: 'auctionDate',
       width: 120,
       render: (v) => v || '—',
     },
     {
       title: '估价',
       dataIndex: 'valuation',
-      width: 120,
+      width: 140,
       render: (v) => v || '—',
     },
     {
@@ -184,8 +198,11 @@ export default function ArtworksPage() {
           <Form.Item name="artist" label="艺术家">
             <Input allowClear placeholder="艺术家姓名" style={{ width: 140 }} />
           </Form.Item>
-          <Form.Item name="year" label="年代">
-            <Input allowClear placeholder="例如 1889" style={{ width: 120 }} />
+          <Form.Item name="lotNumber" label="编号">
+            <Input allowClear placeholder="拍品编号" style={{ width: 120 }} />
+          </Form.Item>
+          <Form.Item name="auctionDate" label="拍卖日期">
+            <Input allowClear placeholder="例如 2023" style={{ width: 120 }} />
           </Form.Item>
           <Form.Item>
             <Space>
@@ -210,7 +227,7 @@ export default function ArtworksPage() {
             showTotal: (t) => `共 ${t} 条记录`,
             showSizeChanger: false,
           }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1100 }}
         />
       </Card>
     </div>

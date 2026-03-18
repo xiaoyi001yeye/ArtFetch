@@ -44,7 +44,8 @@ export interface ArtworkQuery {
   taskId?: number;
   keyword?: string;
   artist?: string;
-  year?: string;
+  auctionDate?: string;
+  lotNumber?: string;
   page?: number;
   size?: number;
 }
@@ -60,6 +61,7 @@ export const exportArtworksUrl = (query: Omit<ArtworkQuery, 'page' | 'size'>) =>
   if (query.taskId) params.set('taskId', String(query.taskId));
   if (query.keyword) params.set('keyword', query.keyword);
   if (query.artist) params.set('artist', query.artist);
-  if (query.year) params.set('year', query.year);
+  if (query.auctionDate) params.set('auctionDate', query.auctionDate);
+  if (query.lotNumber) params.set('lotNumber', query.lotNumber);
   return `/api/artworks/export?${params.toString()}`;
 };

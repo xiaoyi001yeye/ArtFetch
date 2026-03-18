@@ -5,6 +5,8 @@ import com.artfetch.entity.Artwork;
 import com.artfetch.entity.SearchTask;
 import com.artfetch.repository.ArtworkRepository;
 import com.artfetch.repository.SearchTaskRepository;
+import com.artfetch.service.extractor.ArtworkData;
+import com.artfetch.service.extractor.FieldExtractorChain;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -37,7 +39,7 @@ import java.util.regex.Pattern;
  *
  * 详情页解析逻辑：
  *   - 从 https://auction.artron.net/paimai-artXXX 获取
- *   - 解析 th/td 或 dt/dd 格式的字段：材质、形制、尺寸、估价、拍卖会、拍卖专场、拍卖日期、拍卖地点、预展时间、预展地点
+ *   - 使用 FieldExtractorChain 提取所有字段
  */
 @Slf4j
 @Service
@@ -54,6 +56,8 @@ public class FetchService {
     private final AppProperties appProperties;
     private final ArtworkRepository artworkRepository;
     private final SearchTaskRepository taskRepository;
+
+    private final FieldExtractorChain extractorChain = new FieldExtractorChain();
 
     /**
      * 执行一轮完整抓取：从第1页到最后一页，逐页解析并保存。
@@ -192,9 +196,11 @@ public class FetchService {
         String rawTitle = titleEl != null ? titleEl.text().trim() : "";
         String artist = null;
         String artworkTitle = rawTitle;
+        String lotNumber = null;
 
         Matcher m = LOT_TITLE_PATTERN.matcher(rawTitle);
         if (m.matches()) {
+            lotNumber = m.group(1);          // 拍品编号（详情页会覆盖）
             String rest = m.group(2).trim();
             int spIdx = rest.indexOf(' ');
             if (spIdx > 0) {
@@ -213,14 +219,14 @@ public class FetchService {
 
         // 拍卖公司
         Element orgEl = li.selectFirst("a[href*=org_detail]");
-        String auctionCompany = orgEl != null ? orgEl.text().trim() : null;
+        String auctionHouse = orgEl != null ? orgEl.text().trim() : null;
 
         // 拍卖日期
         String auctionDate = null;
         Elements pEls = li.select("p");
         for (Element p : pEls) {
             if (p.selectFirst("a[href*=org_detail]") != null) {
-                String pText = p.text().replace(auctionCompany != null ? auctionCompany : "", "").trim();
+                String pText = p.text().replace(auctionHouse != null ? auctionHouse : "", "").trim();
                 if (!pText.isBlank()) {
                     auctionDate = pText;
                 }
@@ -232,9 +238,10 @@ public class FetchService {
         data.externalId = externalId;
         data.title = artworkTitle;
         data.artist = artist;
+        data.lotNumber = lotNumber;
         data.valuation = valuation;
         data.auctionDate = auctionDate;
-        data.auctionCompany = auctionCompany;
+        data.auctionHouse = auctionHouse;
         data.sourceUrl = sourceUrl;
         return data;
     }
@@ -273,10 +280,6 @@ public class FetchService {
 
     // ---- 详情页抓取与解析 -------------------------------------------------
 
-    /**
-     * 从拍品详情页补充完整字段。
-     * 典型 artron 详情页含 th/td 或 dt/dd 结构的字段描述表。
-     */
     private void enrichFromDetail(ArtworkData data, Long taskId, AppProperties.Source cfg) {
         if (data.sourceUrl == null || data.sourceUrl.isBlank()) return;
         try {
@@ -289,64 +292,11 @@ public class FetchService {
                     .timeout(30_000)
                     .get();
 
-            String medium        = extractByLabel(doc, "材质", "材质尺寸");
-            String format        = extractByLabel(doc, "形制");
-            String dimensions    = extractByLabel(doc, "尺寸");
-            String valuation     = extractByLabel(doc, "估价", "参考价", "起拍价");
-            String auctionName   = extractByLabel(doc, "拍卖会", "专场拍卖", "拍卖名称");
-            String auctionSession = extractByLabel(doc, "专场", "拍卖专场");
-            String auctionDate   = extractByLabel(doc, "拍卖日期", "拍卖时间");
-            String auctionLoc    = extractByLabel(doc, "拍卖地点", "拍卖地址");
-            String previewTime   = extractByLabel(doc, "预展时间", "预展日期");
-            String previewLoc    = extractByLabel(doc, "预展地点", "预展地址");
-            String company       = extractByLabel(doc, "拍卖公司", "拍卖行");
-
-            if (medium != null)        data.medium = medium;
-            if (format != null)        data.format = format;
-            if (dimensions != null)    data.dimensions = dimensions;
-            if (valuation != null)     data.valuation = valuation;
-            if (auctionName != null)   data.auctionName = auctionName;
-            if (auctionSession != null) data.auctionSession = auctionSession;
-            if (auctionDate != null)   data.auctionDate = auctionDate;
-            if (auctionLoc != null)    data.auctionLocation = auctionLoc;
-            if (previewTime != null)   data.previewTime = previewTime;
-            if (previewLoc != null)    data.previewLocation = previewLoc;
-            if (company != null)       data.auctionCompany = company;
+            extractorChain.extractAll(doc, data);
 
         } catch (Exception e) {
             log.warn("Task[{}] 详情页抓取失败 {}：{}", taskId, data.sourceUrl, e.getMessage());
         }
-    }
-
-    /**
-     * 在文档中按标签文本查找对应值，支持多个候选标签名（取第一个匹配）。
-     * 依次尝试：th/td、dt/dd、span[class*=label]/span[class*=value]、含冒号的 label。
-     */
-    private String extractByLabel(Document doc, String... labels) {
-        for (String label : labels) {
-            // th → td
-            Element th = doc.selectFirst("th:containsOwn(" + label + ")");
-            if (th != null) {
-                Element td = th.nextElementSibling();
-                if (td != null && !td.text().isBlank()) return td.text().trim();
-            }
-            // dt → dd
-            Element dt = doc.selectFirst("dt:containsOwn(" + label + ")");
-            if (dt != null) {
-                Element dd = dt.nextElementSibling();
-                if (dd != null && !dd.text().isBlank()) return dd.text().trim();
-            }
-            // li/div 包含 "label：value" 的文本节点
-            Elements containers = doc.select("li, p, div");
-            for (Element el : containers) {
-                String text = el.ownText();
-                if (text.contains(label + "：") || text.contains(label + ":")) {
-                    String val = text.replaceFirst(".*" + label + "[：:]\\s*", "").trim();
-                    if (!val.isBlank()) return val;
-                }
-            }
-        }
-        return null;
     }
 
     // ---- 数据库写入（upsert）----------------------------------------------
@@ -357,7 +307,6 @@ public class FetchService {
         for (ArtworkData item : items) {
             if (item.externalId == null || item.externalId.isBlank()) continue;
 
-            // 按 externalId 全局查重：已有则更新，无则新建
             Artwork artwork = artworkRepository.findByExternalId(item.externalId)
                     .orElse(null);
             boolean isNew = (artwork == null);
@@ -367,15 +316,15 @@ public class FetchService {
                 artwork.setExternalId(item.externalId);
             }
 
-            // 更新所有字段
             artwork.setTitle(item.title);
+            artwork.setLotNumber(item.lotNumber);
             artwork.setArtist(item.artist);
             artwork.setMedium(item.medium);
             artwork.setFormat(item.format);
             artwork.setDimensions(item.dimensions);
             artwork.setValuation(item.valuation);
-            artwork.setYear(item.auctionDate);       // year 字段存拍卖日期
-            artwork.setCollection(item.auctionCompany); // collection 字段存拍卖公司
+            artwork.setAuctionDate(item.auctionDate);
+            artwork.setAuctionHouse(item.auctionHouse);
             artwork.setAuctionName(item.auctionName);
             artwork.setAuctionSession(item.auctionSession);
             artwork.setAuctionLocation(item.auctionLocation);
@@ -410,26 +359,5 @@ public class FetchService {
         } catch (Exception e) {
             return keyword;
         }
-    }
-
-    // ---- 内部数据结构 -----------------------------------------------------
-
-    private static class ArtworkData {
-        String externalId;
-        String title;          // 拍品名称
-        String artist;         // 艺术家
-        String medium;         // 材质
-        String format;         // 形制
-        String dimensions;     // 尺寸
-        String valuation;      // 估价
-        String auctionDate;    // 拍卖日期
-        String auctionCompany; // 拍卖公司
-        String auctionName;    // 拍卖会
-        String auctionSession; // 拍卖专场
-        String auctionLocation;// 拍卖地点
-        String previewTime;    // 预展时间
-        String previewLocation;// 预展地点
-        String imageUrl;
-        String sourceUrl;
     }
 }

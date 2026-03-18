@@ -9,7 +9,8 @@ import java.util.List;
 
 public class ArtworkSpec {
 
-    public static Specification<Artwork> search(Long taskId, String keyword, String artist, String year) {
+    public static Specification<Artwork> search(Long taskId, String keyword, String artist,
+                                                String auctionDate, String lotNumber) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -27,8 +28,11 @@ public class ArtworkSpec {
                 predicates.add(cb.like(cb.lower(root.get("artist")),
                         "%" + artist.toLowerCase() + "%"));
             }
-            if (year != null && !year.isBlank()) {
-                predicates.add(cb.equal(root.get("year"), year));
+            if (auctionDate != null && !auctionDate.isBlank()) {
+                predicates.add(cb.like(root.get("auctionDate"), "%" + auctionDate + "%"));
+            }
+            if (lotNumber != null && !lotNumber.isBlank()) {
+                predicates.add(cb.like(root.get("lotNumber"), "%" + lotNumber + "%"));
             }
 
             query.orderBy(cb.desc(root.get("createdAt")));

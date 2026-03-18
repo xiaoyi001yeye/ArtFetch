@@ -31,12 +31,14 @@ public class ArtworkController {
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String artist,
-            @RequestParam(required = false) String year,
+            @RequestParam(required = false) String auctionDate,
+            @RequestParam(required = false) String lotNumber,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         var artworkPage = artworkRepository.findAll(
-                ArtworkSpec.search(taskId, blankToNull(keyword), blankToNull(artist), blankToNull(year)),
+                ArtworkSpec.search(taskId, blankToNull(keyword), blankToNull(artist),
+                        blankToNull(auctionDate), blankToNull(lotNumber)),
                 PageRequest.of(page, size)
         );
         return ResponseEntity.ok(PageResult.of(artworkPage, ArtworkDto::from));
@@ -54,9 +56,11 @@ public class ArtworkController {
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String artist,
-            @RequestParam(required = false) String year) throws IOException {
+            @RequestParam(required = false) String auctionDate,
+            @RequestParam(required = false) String lotNumber) throws IOException {
 
-        byte[] data = exportService.exportToExcel(taskId, blankToNull(keyword), blankToNull(artist), blankToNull(year));
+        byte[] data = exportService.exportToExcel(taskId, blankToNull(keyword), blankToNull(artist),
+                blankToNull(auctionDate), blankToNull(lotNumber));
 
         String filename = "artworks_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx";
         String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");

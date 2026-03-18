@@ -21,13 +21,15 @@ public class ExportService {
     private final ArtworkRepository artworkRepository;
 
     private static final String[] HEADERS = {
-            "ID", "拍品名称", "艺术家", "材质", "形制", "尺寸", "估价",
+            "ID", "拍品名称", "编号", "艺术家", "材质", "形制", "尺寸", "估价",
             "拍卖公司", "拍卖会", "拍卖专场", "拍卖日期", "拍卖地点",
             "预展时间", "预展地点", "来源URL", "图片URL", "抓取时间"
     };
 
-    public byte[] exportToExcel(Long taskId, String keyword, String artist, String year) throws IOException {
-        List<Artwork> artworks = artworkRepository.findAll(ArtworkSpec.search(taskId, keyword, artist, year));
+    public byte[] exportToExcel(Long taskId, String keyword, String artist,
+                                String auctionDate, String lotNumber) throws IOException {
+        List<Artwork> artworks = artworkRepository.findAll(
+                ArtworkSpec.search(taskId, keyword, artist, auctionDate, lotNumber));
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("艺术品数据");
@@ -69,21 +71,22 @@ public class ExportService {
 
                 setCellValue(row, 0, String.valueOf(art.getId()));
                 setCellValue(row, 1, art.getTitle());
-                setCellValue(row, 2, art.getArtist());
-                setCellValue(row, 3, art.getMedium());
-                setCellValue(row, 4, art.getFormat());
-                setCellValue(row, 5, art.getDimensions());
-                setCellValue(row, 6, art.getValuation());
-                setCellValue(row, 7, art.getCollection());
-                setCellValue(row, 8, art.getAuctionName());
-                setCellValue(row, 9, art.getAuctionSession());
-                setCellValue(row, 10, art.getYear());
-                setCellValue(row, 11, art.getAuctionLocation());
-                setCellValue(row, 12, art.getPreviewTime());
-                setCellValue(row, 13, art.getPreviewLocation());
-                setCellValue(row, 14, art.getSourceUrl());
-                setCellValue(row, 15, art.getImageUrl());
-                setCellValue(row, 16, art.getCreatedAt() != null ? art.getCreatedAt().format(formatter) : "");
+                setCellValue(row, 2, art.getLotNumber());
+                setCellValue(row, 3, art.getArtist());
+                setCellValue(row, 4, art.getMedium());
+                setCellValue(row, 5, art.getFormat());
+                setCellValue(row, 6, art.getDimensions());
+                setCellValue(row, 7, art.getValuation());
+                setCellValue(row, 8, art.getAuctionHouse());
+                setCellValue(row, 9, art.getAuctionName());
+                setCellValue(row, 10, art.getAuctionSession());
+                setCellValue(row, 11, art.getAuctionDate());
+                setCellValue(row, 12, art.getAuctionLocation());
+                setCellValue(row, 13, art.getPreviewTime());
+                setCellValue(row, 14, art.getPreviewLocation());
+                setCellValue(row, 15, art.getSourceUrl());
+                setCellValue(row, 16, art.getImageUrl());
+                setCellValue(row, 17, art.getCreatedAt() != null ? art.getCreatedAt().format(formatter) : "");
             }
 
             // 自动列宽

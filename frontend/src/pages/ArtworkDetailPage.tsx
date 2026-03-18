@@ -6,12 +6,12 @@ import {
   Card,
   Col,
   Descriptions,
+  Divider,
   Image,
   message,
   Row,
   Skeleton,
   Space,
-  Tag,
   Typography,
 } from 'antd'
 import { ArrowLeftOutlined, LinkOutlined } from '@ant-design/icons'
@@ -89,11 +89,17 @@ export default function ArtworkDetailPage() {
 
           {/* 详情 */}
           <Col xs={24} md={16}>
+            {/* 拍品基本信息 */}
             <Descriptions bordered column={1} size="middle">
               <Descriptions.Item label="拍品名称">
                 <Typography.Text strong>{artwork.title}</Typography.Text>
               </Descriptions.Item>
-              <Descriptions.Item label="艺术家">
+              {artwork.lotNumber && (
+                <Descriptions.Item label="编号">
+                  {artwork.lotNumber}
+                </Descriptions.Item>
+              )}
+              <Descriptions.Item label="作者">
                 {artwork.artist || <span style={{ color: '#aaa' }}>未知</span>}
               </Descriptions.Item>
               <Descriptions.Item label="材质">
@@ -108,8 +114,13 @@ export default function ArtworkDetailPage() {
               <Descriptions.Item label="估价">
                 {artwork.valuation || '—'}
               </Descriptions.Item>
+            </Descriptions>
+
+            <Divider orientation="left" style={{ marginTop: 16, marginBottom: 8 }}>拍卖信息</Divider>
+
+            <Descriptions bordered column={1} size="middle">
               <Descriptions.Item label="拍卖公司">
-                {artwork.collection || '—'}
+                {artwork.auctionHouse || '—'}
               </Descriptions.Item>
               <Descriptions.Item label="拍卖会">
                 {artwork.auctionName || '—'}
@@ -118,7 +129,7 @@ export default function ArtworkDetailPage() {
                 {artwork.auctionSession || '—'}
               </Descriptions.Item>
               <Descriptions.Item label="拍卖日期">
-                {artwork.year || '—'}
+                {artwork.auctionDate || '—'}
               </Descriptions.Item>
               <Descriptions.Item label="拍卖地点">
                 {artwork.auctionLocation || '—'}
@@ -129,6 +140,11 @@ export default function ArtworkDetailPage() {
               <Descriptions.Item label="预展地点">
                 {artwork.previewLocation || '—'}
               </Descriptions.Item>
+            </Descriptions>
+
+            <Divider orientation="left" style={{ marginTop: 16, marginBottom: 8 }}>系统信息</Divider>
+
+            <Descriptions bordered column={1} size="middle">
               <Descriptions.Item label="来源任务">
                 <Badge color="blue" text={
                   <Link to={`/artworks?taskId=${artwork.taskId}`}>{artwork.taskName}</Link>

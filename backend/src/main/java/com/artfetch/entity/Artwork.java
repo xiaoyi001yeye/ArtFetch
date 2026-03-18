@@ -29,20 +29,19 @@ public class Artwork {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String title;
 
-    private String artist;
+    @Column(name = "lot_number")
+    private String lotNumber;       // 拍品编号
 
-    private String year;
+    private String artist;          // 作者
 
-    private String medium;
+    private String medium;          // 材质
 
-    private String dimensions;
+    private String format;          // 形制
+
+    private String dimensions;      // 尺寸
 
     @Column(columnDefinition = "TEXT")
     private String description;
-
-    private String category;
-
-    private String collection;
 
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;
@@ -53,13 +52,17 @@ public class Artwork {
     @Column(columnDefinition = "TEXT")
     private String valuation;       // 估价
 
-    private String format;          // 形制
+    @Column(name = "auction_house")
+    private String auctionHouse;    // 拍卖公司
 
     @Column(name = "auction_name")
     private String auctionName;     // 拍卖会
 
     @Column(name = "auction_session")
     private String auctionSession;  // 拍卖专场
+
+    @Column(name = "auction_date")
+    private String auctionDate;     // 拍卖日期
 
     @Column(name = "auction_location")
     private String auctionLocation; // 拍卖地点
