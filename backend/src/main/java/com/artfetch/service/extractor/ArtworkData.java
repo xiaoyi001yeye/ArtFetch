@@ -25,4 +25,6 @@ public class ArtworkData {
     public String auctionLocation; // 拍卖地点
     public String previewTime;     // 预展时间
     public String previewLocation; // 预展地点
+    public String description;     // 拍品描述
+    public String extraData;       // 额外非结构化数据
 }

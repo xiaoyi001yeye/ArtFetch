@@ -137,7 +137,7 @@ public class TaskService {
         interruptTask(id);
         SearchTask task = taskRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
-        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null)));
+        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null)));
         taskRepository.delete(task);
         log.info("删除任务: id={}", id);
     }

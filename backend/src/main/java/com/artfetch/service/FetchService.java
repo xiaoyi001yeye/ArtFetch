@@ -316,22 +316,24 @@ public class FetchService {
                 artwork.setExternalId(item.externalId);
             }
 
-            artwork.setTitle(item.title);
-            artwork.setLotNumber(item.lotNumber);
-            artwork.setArtist(item.artist);
-            artwork.setMedium(item.medium);
-            artwork.setFormat(item.format);
-            artwork.setDimensions(item.dimensions);
-            artwork.setValuation(item.valuation);
-            artwork.setAuctionDate(item.auctionDate);
-            artwork.setAuctionHouse(item.auctionHouse);
-            artwork.setAuctionName(item.auctionName);
-            artwork.setAuctionSession(item.auctionSession);
-            artwork.setAuctionLocation(item.auctionLocation);
-            artwork.setPreviewTime(item.previewTime);
-            artwork.setPreviewLocation(item.previewLocation);
-            artwork.setImageUrl(item.imageUrl);
-            artwork.setSourceUrl(item.sourceUrl);
+            artwork.setTitle(mergeText(item.title, artwork.getTitle()));
+            artwork.setLotNumber(mergeText(item.lotNumber, artwork.getLotNumber()));
+            artwork.setArtist(mergeText(item.artist, artwork.getArtist()));
+            artwork.setMedium(mergeText(item.medium, artwork.getMedium()));
+            artwork.setFormat(mergeText(item.format, artwork.getFormat()));
+            artwork.setDimensions(mergeText(item.dimensions, artwork.getDimensions()));
+            artwork.setDescription(mergeText(item.description, artwork.getDescription()));
+            artwork.setValuation(mergeText(item.valuation, artwork.getValuation()));
+            artwork.setAuctionDate(mergeText(item.auctionDate, artwork.getAuctionDate()));
+            artwork.setAuctionHouse(mergeText(item.auctionHouse, artwork.getAuctionHouse()));
+            artwork.setAuctionName(mergeText(item.auctionName, artwork.getAuctionName()));
+            artwork.setAuctionSession(mergeText(item.auctionSession, artwork.getAuctionSession()));
+            artwork.setAuctionLocation(mergeText(item.auctionLocation, artwork.getAuctionLocation()));
+            artwork.setPreviewTime(mergeText(item.previewTime, artwork.getPreviewTime()));
+            artwork.setPreviewLocation(mergeText(item.previewLocation, artwork.getPreviewLocation()));
+            artwork.setImageUrl(mergeText(item.imageUrl, artwork.getImageUrl()));
+            artwork.setSourceUrl(mergeText(item.sourceUrl, artwork.getSourceUrl()));
+            artwork.setExtraData(mergeText(item.extraData, artwork.getExtraData()));
 
             artworkRepository.save(artwork);
             if (isNew) saved++;
@@ -359,5 +361,12 @@ public class FetchService {
         } catch (Exception e) {
             return keyword;
         }
+    }
+
+    private String mergeText(String latest, String existing) {
+        if (latest != null && !latest.isBlank()) {
+            return latest.trim();
+        }
+        return existing;
     }
 }
