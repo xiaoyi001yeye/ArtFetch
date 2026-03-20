@@ -1,6 +1,6 @@
 # ArtFetch
 
-ArtFetch 是一个面向雅昌艺搜拍卖数据的采集与管理系统，包含 Spring Boot 后端、React 前端和 PostgreSQL 数据库。它支持按关键词创建采集任务、批量抓取拍品详情、在页面中检索和查看结果，并将数据导出为 Excel。
+ArtFetch 是一个艺术品数据采集与管理系统，包含 Spring Boot 后端、React 前端和 PostgreSQL 数据库。它支持按关键词创建采集任务、批量抓取拍品详情、在页面中检索和查看结果，并将数据导出为 Excel。
 
 ## 功能特性
 
@@ -25,7 +25,7 @@ ArtFetch 是一个面向雅昌艺搜拍卖数据的采集与管理系统，包�
 核心链路如下：
 
 1. 创建检索任务
-2. 抓取雅昌艺搜列表页，提取拍品基础信息和详情页链接
+2. 抓取检索结果列表页，提取拍品基础信息和详情页链接
 3. 逐条抓取详情页，优先从 `window.__INITIAL_STATE__` 提取结构化字段
 4. 将结果按 `externalId` 写入或更新到 PostgreSQL
 5. 在前端查看、筛选和导出数据
@@ -105,7 +105,7 @@ npm run dev
 
 关键配置项：
 
-- `artfetch.source.base-url`：数据源检索地址，默认是雅昌艺搜检索页
+- `artfetch.source.base-url`：上游数据源检索地址
 - `artfetch.source.fetch-interval-seconds`：任务轮询间隔，`0` 表示只抓取一次
 - `artfetch.source.request-delay-ms`：请求间隔毫秒数，用于控制抓取频率
 - `artfetch.task.max-concurrent-tasks`：最大并发任务数
@@ -113,7 +113,7 @@ npm run dev
 
 如果需要通过 `.env` 覆盖 Compose 环境变量，请确保：
 
-- `ARTWORK_SOURCE_URL` 指向 `https://artso.artron.net/auction/search_auction.php`
+- `ARTWORK_SOURCE_URL` 指向实际可用的数据源检索地址
 - PostgreSQL 相关变量与本地实际数据库保持一致
 
 ## 数据字段
