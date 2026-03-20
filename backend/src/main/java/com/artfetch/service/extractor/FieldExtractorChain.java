@@ -15,6 +15,7 @@ public class FieldExtractorChain {
 
     public FieldExtractorChain() {
         this.extractors = List.of(
+            new InitialStateExtractor(),
             new LotNumberExtractor(),
             new ArtistExtractor(),
             new MediumExtractor(),
