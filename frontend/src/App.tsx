@@ -1,9 +1,10 @@
 import { Layout, Menu, Typography } from 'antd'
-import { FileSearchOutlined, PictureOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { FileSearchOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import TasksPage from './pages/TasksPage'
 import ArtworksPage from './pages/ArtworksPage'
 import ArtworkDetailPage from './pages/ArtworkDetailPage'
+import ArtFetchMark from './components/ArtFetchMark'
 
 const { Header, Content, Footer } = Layout
 
@@ -15,9 +16,19 @@ export default function App() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '0 24px' }}>
-        <Typography.Title level={4} style={{ color: '#fff', margin: 0, whiteSpace: 'nowrap' }}>
-          <PictureOutlined style={{ marginRight: 8 }} />
-          ArtFetch
+        <Typography.Title
+          level={4}
+          style={{
+            color: '#fff',
+            margin: 0,
+            whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <ArtFetchMark size={28} />
+          <span>ArtFetch</span>
         </Typography.Title>
         <Menu
           theme="dark"

@@ -12,9 +12,10 @@ import {
   Row,
   Skeleton,
   Space,
+  Tooltip,
   Typography,
 } from 'antd'
-import { ArrowLeftOutlined, LinkOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, DollarOutlined, DownloadOutlined, LinkOutlined, PictureOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import * as api from '../api'
 import type { Artwork } from '../types'
@@ -24,6 +25,8 @@ export default function ArtworkDetailPage() {
   const navigate = useNavigate()
   const [artwork, setArtwork] = useState<Artwork | null>(null)
   const [loading, setLoading] = useState(true)
+  const [redownloading, setRedownloading] = useState(false)
+  const [supplementingPrice, setSupplementingPrice] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -43,6 +46,50 @@ export default function ArtworkDetailPage() {
 
   if (!artwork) return null
 
+  const canViewOriginal = Boolean(artwork.originalImageAvailable || artwork.originalImageSourceUrl || artwork.sourceUrl || artwork.imageUrl)
+  const hdImageViewUrl = artwork.hdImageAvailable ? api.hdImageViewUrl(artwork.id) : undefined
+  const hdImageTooltip = artwork.hdImageAvailable
+    ? '从本地打开已下载的超清无损图'
+    : artwork.hdImageStatus === 'FAILED'
+      ? `超清无损图下载失败：${artwork.hdImageLastError || '请在任务管理中重新运行补充超清无损图任务'}`
+      : '超清无损图尚未下载，请先在任务管理中创建并运行补充超清无损图任务'
+
+  const handleRedownloadOriginal = async () => {
+    if (!artwork) return
+    setRedownloading(true)
+    try {
+      const updated = await api.redownloadOriginalImage(artwork.id)
+      setArtwork(updated)
+      message.success('原图已重新下载')
+    } catch (e: any) {
+      message.error(e.message)
+    } finally {
+      setRedownloading(false)
+    }
+  }
+
+  const handleSupplementTransactionPrice = async () => {
+    if (!artwork) return
+    setSupplementingPrice(true)
+    try {
+      const updated = await api.supplementTransactionPrice(artwork.id)
+      setArtwork(updated)
+      if (updated.transactionPrice) {
+        message.success(`成交价已补充：${updated.transactionPrice}`)
+      } else {
+        message.info(`未拿到成交价：${updated.transactionPriceNote || '待补充'}`)
+      }
+    } catch (e: any) {
+      message.error(e.message)
+    } finally {
+      setSupplementingPrice(false)
+    }
+  }
+
+  const transactionPriceDisplay = artwork.transactionPrice
+    ? artwork.transactionPrice
+    : <span style={{ color: '#999' }}>{artwork.transactionPriceNote || '待补充'}</span>
+
   return (
     <div>
       <Breadcrumb
@@ -61,11 +108,40 @@ export default function ArtworkDetailPage() {
           </Space>
         }
         extra={
-          artwork.sourceUrl && (
-            <Button icon={<LinkOutlined />} href={artwork.sourceUrl} target="_blank">
-              查看原始数据
+          <Space>
+            <Button
+              icon={<DollarOutlined />}
+              loading={supplementingPrice}
+              onClick={handleSupplementTransactionPrice}
+            >
+              补充成交价
             </Button>
-          )
+            {canViewOriginal && (
+              <Button icon={<PictureOutlined />} href={api.originalImageViewUrl(artwork.id)} target="_blank">
+                查看已保存原图
+              </Button>
+            )}
+            <Tooltip title={hdImageTooltip}>
+              <span>
+                <Button
+                  icon={<PictureOutlined />}
+                  href={hdImageViewUrl}
+                  target="_blank"
+                  disabled={!artwork.hdImageAvailable}
+                >
+                  查看超清无损图
+                </Button>
+              </span>
+            </Tooltip>
+            <Button icon={<DownloadOutlined />} loading={redownloading} onClick={handleRedownloadOriginal}>
+              重新下载原图
+            </Button>
+            {artwork.sourceUrl && (
+              <Button icon={<LinkOutlined />} href={artwork.sourceUrl} target="_blank">
+                查看原始数据
+              </Button>
+            )}
+          </Space>
         }
       >
         <Row gutter={[24, 24]}>
@@ -114,6 +190,9 @@ export default function ArtworkDetailPage() {
               <Descriptions.Item label="估价">
                 {artwork.valuation || '—'}
               </Descriptions.Item>
+              <Descriptions.Item label="成交价">
+                {transactionPriceDisplay}
+              </Descriptions.Item>
             </Descriptions>
 
             <Divider orientation="left" style={{ marginTop: 16, marginBottom: 8 }}>拍卖信息</Divider>
@@ -149,6 +228,25 @@ export default function ArtworkDetailPage() {
                 <Badge color="blue" text={
                   <Link to={`/artworks?taskId=${artwork.taskId}`}>{artwork.taskName}</Link>
                 } />
+              </Descriptions.Item>
+              <Descriptions.Item label="原图状态">
+                {artwork.originalImageStatus === 'DOWNLOADED'
+                  ? '已保存'
+                  : artwork.originalImageStatus === 'FAILED'
+                    ? '下载失败'
+                    : '未保存'}
+              </Descriptions.Item>
+              <Descriptions.Item label="超清无损图状态">
+                {artwork.hdImageAvailable ? (
+                  <Space size={4}>
+                    <Typography.Text>已保存本地</Typography.Text>
+                    <Typography.Text type="secondary">可直接查看</Typography.Text>
+                  </Space>
+                ) : artwork.hdImageStatus === 'FAILED' ? (
+                  artwork.hdImageLastError || '下载失败'
+                ) : (
+                  '未保存'
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="抓取时间">
                 {artwork.createdAt?.replace('T', ' ').slice(0, 19)}

@@ -20,8 +20,17 @@ public class ArtworkDto {
     private String dimensions;
     private String description;
     private String imageUrl;
+    private String originalImageSourceUrl;
+    private String originalImageStatus;
+    private boolean originalImageAvailable;
+    private String hdImageSourceUrl;
+    private String hdImageStatus;
+    private boolean hdImageAvailable;
+    private String hdImageLastError;
     private String sourceUrl;
     private String valuation;
+    private String transactionPrice;
+    private String transactionPriceNote;
     private String auctionHouse;
     private String auctionName;
     private String auctionSession;
@@ -45,8 +54,21 @@ public class ArtworkDto {
         dto.setDimensions(artwork.getDimensions());
         dto.setDescription(artwork.getDescription());
         dto.setImageUrl(artwork.getImageUrl());
+        dto.setOriginalImageSourceUrl(artwork.getOriginalImageSourceUrl());
+        dto.setOriginalImageStatus(artwork.getOriginalImageStatus() == null
+                ? Artwork.OriginalImageStatus.MISSING.name()
+                : artwork.getOriginalImageStatus().name());
+        dto.setOriginalImageAvailable(artwork.getOriginalImagePath() != null && !artwork.getOriginalImagePath().isBlank());
+        dto.setHdImageSourceUrl(artwork.getHdImageSourceUrl());
+        dto.setHdImageStatus(artwork.getHdImageStatus() == null
+                ? Artwork.HdImageStatus.MISSING.name()
+                : artwork.getHdImageStatus().name());
+        dto.setHdImageAvailable(artwork.getHdImagePath() != null && !artwork.getHdImagePath().isBlank());
+        dto.setHdImageLastError(artwork.getHdImageLastError());
         dto.setSourceUrl(artwork.getSourceUrl());
         dto.setValuation(artwork.getValuation());
+        dto.setTransactionPrice(artwork.getTransactionPrice());
+        dto.setTransactionPriceNote(artwork.getTransactionPriceNote());
         dto.setAuctionHouse(artwork.getAuctionHouse());
         dto.setAuctionName(artwork.getAuctionName());
         dto.setAuctionSession(artwork.getAuctionSession());

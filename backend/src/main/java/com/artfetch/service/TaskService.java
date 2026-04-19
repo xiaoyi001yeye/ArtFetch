@@ -2,8 +2,10 @@ package com.artfetch.service;
 
 import com.artfetch.config.AppProperties;
 import com.artfetch.dto.CreateTaskRequest;
+import com.artfetch.dto.FetchFailureDto;
 import com.artfetch.dto.PageResult;
 import com.artfetch.dto.TaskDto;
+import com.artfetch.entity.FetchFailure;
 import com.artfetch.entity.SearchTask;
 import com.artfetch.repository.ArtworkRepository;
 import com.artfetch.repository.ArtworkSpec;
@@ -26,6 +28,10 @@ public class TaskService {
     private final SearchTaskRepository taskRepository;
     private final ArtworkRepository artworkRepository;
     private final FetchService fetchService;
+    private final FetchFailureService fetchFailureService;
+    private final OriginalImageService originalImageService;
+    private final HdImageService hdImageService;
+    private final TransactionPriceService transactionPriceService;
     private final AppProperties appProperties;
     private final ExecutorService taskExecutor;
 
@@ -35,23 +41,35 @@ public class TaskService {
     public TaskService(SearchTaskRepository taskRepository,
                        ArtworkRepository artworkRepository,
                        FetchService fetchService,
+                       FetchFailureService fetchFailureService,
+                       OriginalImageService originalImageService,
+                       HdImageService hdImageService,
+                       TransactionPriceService transactionPriceService,
                        AppProperties appProperties,
                        ExecutorService taskExecutor) {
         this.taskRepository = taskRepository;
         this.artworkRepository = artworkRepository;
         this.fetchService = fetchService;
+        this.fetchFailureService = fetchFailureService;
+        this.originalImageService = originalImageService;
+        this.hdImageService = hdImageService;
+        this.transactionPriceService = transactionPriceService;
         this.appProperties = appProperties;
         this.taskExecutor = taskExecutor;
     }
 
     @Transactional
     public TaskDto createTask(CreateTaskRequest request) {
+        SearchTask.TaskType taskType = parseTaskType(request.getTaskType());
         SearchTask task = new SearchTask();
-        task.setName(request.getName());
-        task.setKeyword(request.getKeyword());
+        task.setTaskType(taskType);
+        task.setName(resolveTaskName(request, taskType));
+        task.setKeyword(resolveKeyword(request, taskType));
+        task.setTargetTaskId(resolveTargetTaskId(request, taskType));
         task.setStatus(SearchTask.TaskStatus.PENDING);
         taskRepository.save(task);
-        log.info("创建检索任务: id={}, keyword={}", task.getId(), task.getKeyword());
+        log.info("创建任务: id={}, type={}, keyword={}, targetTaskId={}",
+                task.getId(), task.getTaskType(), task.getKeyword(), task.getTargetTaskId());
         return toDto(task);
     }
 
@@ -137,9 +155,30 @@ public class TaskService {
         interruptTask(id);
         SearchTask task = taskRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
-        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null)));
+        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null, null)));
+        fetchFailureService.deleteTaskFailures(id);
         taskRepository.delete(task);
         log.info("删除任务: id={}", id);
+    }
+
+    public java.util.List<FetchFailureDto> listFailures(Long taskId) {
+        return fetchFailureService.listTaskFailures(taskId);
+    }
+
+    public java.util.List<FetchFailureDto> retryFailures(Long taskId) {
+        SearchTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
+
+        return fetchFailureService.listPendingFailures(taskId).stream()
+                .map(failure -> FetchFailureDto.from(retryFailureInternal(task, failure)))
+                .toList();
+    }
+
+    public FetchFailureDto retryFailure(Long taskId, Long failureId) {
+        SearchTask task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
+        FetchFailure failure = fetchFailureService.getTaskFailure(taskId, failureId);
+        return FetchFailureDto.from(retryFailureInternal(task, failure));
     }
 
     private void submitTaskThread(SearchTask task) {
@@ -160,11 +199,38 @@ public class TaskService {
                 if (task == null || task.getStatus() != SearchTask.TaskStatus.RUNNING) break;
 
                 try {
-                    fetchService.fetchAll(task);
-                    // 抓取正常完成
-                    if (appProperties.getSource().getFetchIntervalSeconds() <= 0) {
-                        markTaskCompleted(taskId);
+                    SearchTask.TaskType taskType = task.getTaskType() == null
+                            ? SearchTask.TaskType.SEARCH
+                            : task.getTaskType();
+                    if (taskType == SearchTask.TaskType.ORIGINAL_IMAGE) {
+                        OriginalImageTaskResult result = originalImageService.runTask(task);
+                        markTaskCompleted(taskId, result.getFailedCount() > 0
+                                ? "原图补充已完成，但有 " + result.getFailedCount() + " 条下载失败，可在详情页重试"
+                                : null);
                         break;
+                    } else if (taskType == SearchTask.TaskType.HD_IMAGE) {
+                        HdImageTaskResult result = hdImageService.runTask(task);
+                        markTaskCompleted(taskId, result.getFailedCount() > 0
+                                ? "超清无损图补充已完成，但有 " + result.getFailedCount() + " 条下载失败"
+                                : null);
+                        break;
+                    } else if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+                        TransactionPriceTaskResult result = transactionPriceService.runTask(task);
+                        markTaskCompleted(taskId, buildTransactionPriceSummary(result));
+                        break;
+                    } else {
+                        FetchRunResult result = fetchService.fetchAll(task);
+                        if (!result.isCompletedAllPages()) {
+                            markTaskFailed(taskId, result.getFatalErrorMessage());
+                            break;
+                        }
+
+                        if (appProperties.getSource().getFetchIntervalSeconds() <= 0) {
+                            markTaskCompleted(taskId, null);
+                            break;
+                        }
+
+                        clearTaskError(taskId);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -199,8 +265,21 @@ public class TaskService {
 
     @Transactional
     protected void markTaskCompleted(Long taskId) {
+        markTaskCompleted(taskId, null);
+    }
+
+    @Transactional
+    protected void markTaskCompleted(Long taskId, String message) {
         taskRepository.findById(taskId).ifPresent(t -> {
             t.setStatus(SearchTask.TaskStatus.COMPLETED);
+            long pendingFailures = fetchFailureService.countPendingFailures(taskId);
+            if (message != null && !message.isBlank()) {
+                t.setErrorMessage(message);
+            } else if ((t.getTaskType() == null || t.getTaskType() == SearchTask.TaskType.SEARCH) && pendingFailures > 0) {
+                t.setErrorMessage("抓取已完成，但仍有 " + pendingFailures + " 条失败记录待重试");
+            } else {
+                t.setErrorMessage(null);
+            }
             taskRepository.save(t);
             log.info("Task[{}] 已完成", taskId);
         });
@@ -215,10 +294,87 @@ public class TaskService {
         });
     }
 
+    @Transactional
+    protected void clearTaskError(Long taskId) {
+        taskRepository.findById(taskId).ifPresent(t -> {
+            long pendingFailures = fetchFailureService.countPendingFailures(taskId);
+            t.setErrorMessage(pendingFailures > 0
+                    ? "抓取已完成，但仍有 " + pendingFailures + " 条失败记录待重试"
+                    : null);
+            taskRepository.save(t);
+        });
+    }
+
     private TaskDto toDto(SearchTask task) {
         TaskDto dto = TaskDto.from(task);
         dto.setArtworkCount(artworkRepository.countByTaskId(task.getId()));
+        dto.setPendingFailureCount(fetchFailureService.countPendingFailures(task.getId()));
+        dto.setEstimatedRemainingMs(estimateRemainingMs(task));
+        if (task.getTargetTaskId() != null) {
+            taskRepository.findById(task.getTargetTaskId())
+                    .ifPresent(targetTask -> dto.setTargetTaskName(targetTask.getName()));
+        }
         return dto;
+    }
+
+    private Long estimateRemainingMs(SearchTask task) {
+        if (task.getStatus() == SearchTask.TaskStatus.COMPLETED
+                || task.getStatus() == SearchTask.TaskStatus.CANCELLED) {
+            return 0L;
+        }
+        if (task.getTotalPages() <= 0) {
+            return null;
+        }
+
+        int remainingItems = Math.max(0, task.getTotalPages() - task.getCurrentPage());
+        if (remainingItems == 0) {
+            return 0L;
+        }
+
+        if (task.getLastPageItemsPerMinute() > 0) {
+            return Math.max(1L, Math.round(remainingItems * 60_000D / task.getLastPageItemsPerMinute()));
+        }
+        if (task.getLastPageDurationMs() <= 0) {
+            return null;
+        }
+
+        if (task.getTaskType() == SearchTask.TaskType.TRANSACTION_PRICE) {
+            int batchSize = Math.max(1,
+                    Math.max(appProperties.getPrice().getBatchSize(), appProperties.getPrice().getFetchConcurrency()));
+            long remainingBatches = (long) Math.ceil((double) remainingItems / batchSize);
+            return remainingBatches * task.getLastPageDurationMs();
+        }
+        if (task.getTaskType() == SearchTask.TaskType.ORIGINAL_IMAGE
+                || task.getTaskType() == SearchTask.TaskType.HD_IMAGE) {
+            int batchSize = Math.max(1,
+                    Math.max(appProperties.getImage().getBatchSize(), appProperties.getImage().getArtworkConcurrency()));
+            long remainingBatches = (long) Math.ceil((double) remainingItems / batchSize);
+            return remainingBatches * task.getLastPageDurationMs();
+        }
+
+        int remainingPages = remainingItems;
+        long perPageEstimateMs = task.getLastPageDurationMs() + appProperties.getSource().getRequestDelayMs();
+        return remainingPages * perPageEstimateMs;
+    }
+
+    private FetchFailure retryFailureInternal(SearchTask task, FetchFailure failure) {
+        fetchFailureService.markRetryAttempted(failure.getId());
+        boolean resolved = fetchService.retryFailure(task, failure);
+        if (resolved) {
+            fetchFailureService.markResolved(failure.getId());
+        }
+
+        SearchTask freshTask = taskRepository.findById(task.getId())
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + task.getId()));
+        if (freshTask.getStatus() == SearchTask.TaskStatus.COMPLETED) {
+            long pendingFailures = fetchFailureService.countPendingFailures(task.getId());
+            freshTask.setErrorMessage(pendingFailures > 0
+                    ? "抓取已完成，但仍有 " + pendingFailures + " 条失败记录待重试"
+                    : null);
+            taskRepository.save(freshTask);
+        }
+
+        return fetchFailureService.getTaskFailure(task.getId(), failure.getId());
     }
 
     @PreDestroy
@@ -226,5 +382,86 @@ public class TaskService {
         log.info("正在中断所有运行中的任务...");
         runningThreads.values().forEach(Thread::interrupt);
         runningThreads.clear();
+    }
+
+    private SearchTask.TaskType parseTaskType(String value) {
+        if (value == null || value.isBlank()) {
+            return SearchTask.TaskType.SEARCH;
+        }
+        try {
+            return SearchTask.TaskType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("不支持的任务类型: " + value);
+        }
+    }
+
+    private String resolveTaskName(CreateTaskRequest request, SearchTask.TaskType taskType) {
+        if (request.getName() != null && !request.getName().isBlank()) {
+            return request.getName().trim();
+        }
+        if (taskType == SearchTask.TaskType.ORIGINAL_IMAGE) {
+            SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
+            return targetTask.getName() + " 原图补充";
+        }
+        if (taskType == SearchTask.TaskType.HD_IMAGE) {
+            SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
+            return targetTask.getName() + " 超清无损图补充";
+        }
+        if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+            SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
+            return targetTask.getName() + " 成交价补充";
+        }
+        throw new IllegalArgumentException("任务名称不能为空");
+    }
+
+    private String resolveKeyword(CreateTaskRequest request, SearchTask.TaskType taskType) {
+        if (taskType == SearchTask.TaskType.ORIGINAL_IMAGE
+                || taskType == SearchTask.TaskType.HD_IMAGE
+                || taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+            return requireTargetSearchTask(request.getTargetTaskId()).getKeyword();
+        }
+        if (request.getKeyword() == null || request.getKeyword().isBlank()) {
+            throw new IllegalArgumentException("检索关键词不能为空");
+        }
+        return request.getKeyword().trim();
+    }
+
+    private Long resolveTargetTaskId(CreateTaskRequest request, SearchTask.TaskType taskType) {
+        if (taskType != SearchTask.TaskType.ORIGINAL_IMAGE
+                && taskType != SearchTask.TaskType.HD_IMAGE
+                && taskType != SearchTask.TaskType.TRANSACTION_PRICE) {
+            return null;
+        }
+        return requireTargetSearchTask(request.getTargetTaskId()).getId();
+    }
+
+    private SearchTask requireTargetSearchTask(Long targetTaskId) {
+        if (targetTaskId == null) {
+            throw new IllegalArgumentException("补充类任务必须选择目标检索任务");
+        }
+        SearchTask targetTask = taskRepository.findById(targetTaskId)
+                .orElseThrow(() -> new IllegalArgumentException("目标检索任务不存在: " + targetTaskId));
+        if (targetTask.getTaskType() != null && targetTask.getTaskType() != SearchTask.TaskType.SEARCH) {
+            throw new IllegalArgumentException("补充类任务只能关联检索任务");
+        }
+        return targetTask;
+    }
+
+    private String buildTransactionPriceSummary(TransactionPriceTaskResult result) {
+        if (result.getFailedCount() == 0 && result.getLoginRequiredCount() == 0 && result.getMissingCount() == 0) {
+            return null;
+        }
+
+        StringBuilder summary = new StringBuilder("成交价补充已完成");
+        if (result.getFailedCount() > 0) {
+            summary.append("，").append(result.getFailedCount()).append(" 条请求失败");
+        }
+        if (result.getLoginRequiredCount() > 0) {
+            summary.append("，").append(result.getLoginRequiredCount()).append(" 条因需要登录未拿到成交价");
+        }
+        if (result.getMissingCount() > 0) {
+            summary.append("，").append(result.getMissingCount()).append(" 条详情页未提供成交价");
+        }
+        return summary.toString();
     }
 }

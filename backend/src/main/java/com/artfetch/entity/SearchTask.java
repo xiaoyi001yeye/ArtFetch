@@ -1,12 +1,14 @@
 package com.artfetch.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @Entity
 @Table(name = "search_tasks")
@@ -21,6 +23,13 @@ public class SearchTask {
 
     @Column(nullable = false)
     private String keyword;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "task_type")
+    private TaskType taskType = TaskType.SEARCH;
+
+    @Column(name = "target_task_id")
+    private Long targetTaskId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -38,6 +47,39 @@ public class SearchTask {
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Column(name = "detail_fetch_concurrency")
+    private int detailFetchConcurrency = 1;
+
+    @Column(name = "detail_request_count")
+    private long detailRequestCount = 0;
+
+    @Column(name = "detail_success_count")
+    private long detailSuccessCount = 0;
+
+    @Column(name = "detail_failure_count")
+    private long detailFailureCount = 0;
+
+    @Column(name = "avg_detail_latency_ms")
+    private long avgDetailLatencyMs = 0;
+
+    @Column(name = "p95_detail_latency_ms")
+    private long p95DetailLatencyMs = 0;
+
+    @Column(name = "max_detail_latency_ms")
+    private long maxDetailLatencyMs = 0;
+
+    @Column(name = "last_page_duration_ms")
+    private long lastPageDurationMs = 0;
+
+    @Column(name = "last_page_items_per_minute")
+    private double lastPageItemsPerMinute = 0D;
+
+    @Column(name = "detail_failure_rate")
+    private double detailFailureRate = 0D;
+
+    @Column(name = "concurrency_advice", columnDefinition = "TEXT")
+    private String concurrencyAdvice;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -51,5 +93,12 @@ public class SearchTask {
 
     public enum TaskStatus {
         PENDING, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
+    }
+
+    public enum TaskType {
+        SEARCH,
+        ORIGINAL_IMAGE,
+        HD_IMAGE,
+        TRANSACTION_PRICE
     }
 }

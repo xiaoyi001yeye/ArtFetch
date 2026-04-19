@@ -1,12 +1,14 @@
 package com.artfetch.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @Entity
 @Table(name = "artworks", indexes = {
@@ -46,11 +48,61 @@ public class Artwork {
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;
 
+    @Column(name = "original_image_source_url", columnDefinition = "TEXT")
+    private String originalImageSourceUrl;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "original_image_status")
+    private OriginalImageStatus originalImageStatus = OriginalImageStatus.MISSING;
+
+    @Column(name = "original_image_path", columnDefinition = "TEXT")
+    private String originalImagePath;
+
+    @Column(name = "original_image_content_type")
+    private String originalImageContentType;
+
+    @Column(name = "original_image_size")
+    private Long originalImageSize;
+
+    @Column(name = "original_image_downloaded_at")
+    private LocalDateTime originalImageDownloadedAt;
+
+    @Column(name = "original_image_last_error", columnDefinition = "TEXT")
+    private String originalImageLastError;
+
+    @Column(name = "hd_image_source_url", columnDefinition = "TEXT")
+    private String hdImageSourceUrl;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hd_image_status")
+    private HdImageStatus hdImageStatus = HdImageStatus.MISSING;
+
+    @Column(name = "hd_image_path", columnDefinition = "TEXT")
+    private String hdImagePath;
+
+    @Column(name = "hd_image_content_type")
+    private String hdImageContentType;
+
+    @Column(name = "hd_image_size")
+    private Long hdImageSize;
+
+    @Column(name = "hd_image_downloaded_at")
+    private LocalDateTime hdImageDownloadedAt;
+
+    @Column(name = "hd_image_last_error", columnDefinition = "TEXT")
+    private String hdImageLastError;
+
     @Column(name = "source_url", columnDefinition = "TEXT")
     private String sourceUrl;
 
     @Column(columnDefinition = "TEXT")
     private String valuation;       // 估价
+
+    @Column(name = "transaction_price", columnDefinition = "TEXT")
+    private String transactionPrice; // 成交价
+
+    @Column(name = "transaction_price_note", columnDefinition = "TEXT")
+    private String transactionPriceNote; // 未拿到成交价时的简短原因
 
     @Column(name = "auction_house")
     private String auctionHouse;    // 拍卖公司
@@ -78,4 +130,16 @@ public class Artwork {
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    public enum OriginalImageStatus {
+        MISSING,
+        DOWNLOADED,
+        FAILED
+    }
+
+    public enum HdImageStatus {
+        MISSING,
+        DOWNLOADED,
+        FAILED
+    }
 }

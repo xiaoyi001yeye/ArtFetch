@@ -39,7 +39,9 @@ export default function ArtworksPage() {
   const [form] = Form.useForm()
 
   useEffect(() => {
-    api.listTasks(0, 100).then((r) => setTasks(r.items)).catch(() => {})
+    api.listTasks(0, 100)
+      .then((r) => setTasks(r.items.filter((task) => task.taskType === 'SEARCH')))
+      .catch(() => {})
     if (initTaskId) {
       form.setFieldsValue({ taskId: initTaskId })
     }
@@ -70,12 +72,41 @@ export default function ArtworksPage() {
       artist: values.artist || undefined,
       auctionDate: values.auctionDate || undefined,
       lotNumber: values.lotNumber || undefined,
+      hdImageSyncStatus: values.hdImageSyncStatus || undefined,
     })
   }
 
   const handleExport = () => {
     const url = api.exportArtworksUrl(query)
     window.open(url, '_blank')
+  }
+
+  const renderTransactionPrice = (record: Artwork) => {
+    if (record.transactionPrice) {
+      return record.transactionPrice
+    }
+    return <span style={{ color: '#999' }}>{record.transactionPriceNote || '待补充'}</span>
+  }
+
+  const renderHdImageStatus = (record: Artwork) => {
+    if (record.hdImageAvailable) {
+      return <Tag color="green">已同步</Tag>
+    }
+    if (record.hdImageLastError?.includes('没有观看权限')) {
+      return (
+        <Tooltip title={record.hdImageLastError}>
+          <Tag color="red">没有观看权限</Tag>
+        </Tooltip>
+      )
+    }
+    if (record.hdImageStatus === 'FAILED') {
+      return (
+        <Tooltip title={record.hdImageLastError || '超清大图同步失败'}>
+          <Tag color="orange">同步失败</Tag>
+        </Tooltip>
+      )
+    }
+    return <Tag>未同步</Tag>
   }
 
   const columns: ColumnsType<Artwork> = [
@@ -148,6 +179,17 @@ export default function ArtworksPage() {
       render: (v) => v || '—',
     },
     {
+      title: '成交价',
+      dataIndex: 'transactionPrice',
+      width: 140,
+      render: (_, record) => renderTransactionPrice(record),
+    },
+    {
+      title: '高清大图',
+      width: 130,
+      render: (_, record) => renderHdImageStatus(record),
+    },
+    {
       title: '来源任务',
       dataIndex: 'taskName',
       width: 140,
@@ -204,6 +246,14 @@ export default function ArtworksPage() {
           <Form.Item name="auctionDate" label="拍卖日期">
             <Input allowClear placeholder="例如 2023" style={{ width: 120 }} />
           </Form.Item>
+          <Form.Item name="hdImageSyncStatus" label="高清大图">
+            <Select allowClear placeholder="全部状态" style={{ width: 160 }}>
+              <Select.Option value="SYNCED">已同步</Select.Option>
+              <Select.Option value="UNSYNCED">未同步</Select.Option>
+              <Select.Option value="NO_PERMISSION">没有观看权限</Select.Option>
+              <Select.Option value="FAILED">同步失败</Select.Option>
+            </Select>
+          </Form.Item>
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>检索</Button>
@@ -227,7 +277,7 @@ export default function ArtworksPage() {
             showTotal: (t) => `共 ${t} 条记录`,
             showSizeChanger: false,
           }}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1370 }}
         />
       </Card>
     </div>

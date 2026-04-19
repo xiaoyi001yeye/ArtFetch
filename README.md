@@ -45,6 +45,7 @@ docker compose up -d --build
 - 前端：`http://localhost:3000`
 - 后端：`http://localhost:8080`
 - PostgreSQL：`localhost:5432`
+- JupyterLab：`http://localhost:8888`
 
 停止服务：
 
@@ -110,11 +111,32 @@ npm run dev
 - `artfetch.source.request-delay-ms`：请求间隔毫秒数，用于控制抓取频率
 - `artfetch.task.max-concurrent-tasks`：最大并发任务数
 - `artfetch.task.thread-pool-size`：抓取线程池大小
+- `artfetch.auth.artron-cookie`：雅昌登录后的完整 Cookie Header，用于抓取会员可见的成交价等字段
+- `artfetch.auth.artron-account` / `artfetch.auth.artron-password`：如未直接提供 Cookie，可由后端自动登录换取雅昌 Cookie
 
 如果需要通过 `.env` 覆盖 Compose 环境变量，请确保：
 
 - `ARTWORK_SOURCE_URL` 指向实际可用的数据源检索地址
 - PostgreSQL 相关变量与本地实际数据库保持一致
+- 如需抓取登录后可见字段，可设置 `ARTFETCH_AUTH_ARTRON_COOKIE`
+- 或设置 `ARTFETCH_AUTH_ARTRON_ACCOUNT`、`ARTFETCH_AUTH_ARTRON_PASSWORD`，由后端自动登录并刷新 Cookie
+
+示例：
+
+```bash
+export ARTFETCH_AUTH_ARTRON_COOKIE='name1=value1; name2=value2; ...'
+```
+
+设置后，列表页、详情页、成交价补充和原图解析请求都会自动携带这个登录 Cookie。
+
+如果你不想手动维护 Cookie，也可以：
+
+```bash
+export ARTFETCH_AUTH_ARTRON_ACCOUNT='your-account'
+export ARTFETCH_AUTH_ARTRON_PASSWORD='your-password'
+```
+
+后端会在请求雅昌前自动登录并缓存会话 Cookie。
 
 ## 数据字段
 
@@ -153,6 +175,46 @@ npm run dev
 - 删除旧的 `category`
 
 新环境首次启动时，`spring.jpa.hibernate.ddl-auto=update` 会自动补充大部分表结构；已有历史数据时仍建议先执行迁移脚本。
+
+## Jupyter 成交价预测调试
+
+仓库新增了一个独立的 `jupyter` 容器，用于直接连接 PostgreSQL，做成交价预测实验，不影响现有 Spring Boot 和前端服务。
+
+启动方式：
+
+```bash
+docker compose up -d postgres jupyter
+```
+
+如果你也想把整套应用一起拉起：
+
+```bash
+docker compose up -d --build
+```
+
+访问地址：
+
+- `http://localhost:8888`
+
+主要目录：
+
+- `ml/notebooks/price_prediction_debug.ipynb`：人工调试 notebook 入口
+- `ml/src/artfetch_ml/db.py`：数据库查询
+- `ml/src/artfetch_ml/parsers.py`：中文金额、尺寸、日期解析
+- `ml/src/artfetch_ml/features.py`：特征工程
+- `ml/src/artfetch_ml/train.py`：XGBoost 训练与评估
+
+当前 notebook 的训练标签来自 `artworks.extra_data` 中的 `transactionPrice`。也就是说，第一版不会改业务数据库结构，而是直接从已抓到的 JSON 附加字段里提取“成交价”。
+
+默认流程：
+
+1. 从 PostgreSQL 读取 `artworks`
+2. 从 `extra_data.transactionPrice` 解析成交价
+3. 从 `valuation`、`dimensions`、`artist`、`medium`、`auctionHouse` 等字段构造特征
+4. 训练 `XGBRegressor`
+5. 在 notebook 里查看指标、特征重要性和预测样例
+
+如果你想调参，直接在 notebook 里修改 `xgb_params` 重新运行即可。
 
 ## 接口概览
 

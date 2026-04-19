@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+
 /**
  * 从页面内嵌的 window.__INITIAL_STATE__ 中提取结构化字段。
  * 雅昌详情页大部分真实数据都在这段 JSON 中，DOM 仅作为兜底来源。
@@ -49,6 +52,16 @@ public class InitialStateExtractor implements FieldExtractor {
         data.valuation = firstNonBlank(
                 findItemValue(detail.path("extraInfo"), "估价", "参考价", "起拍价"),
                 data.valuation
+        );
+        TransactionPriceInfo transactionPriceInfo = extractTransactionPrice(detail, pageData);
+        data.transactionPrice = firstNonBlank(
+                transactionPriceInfo.value(),
+                data.transactionPrice
+        );
+        data.transactionPriceLoginRequired = transactionPriceInfo.loginRequired();
+        data.transactionPriceMessage = firstNonBlank(
+                transactionPriceInfo.message(),
+                data.transactionPriceMessage
         );
         data.auctionHouse = firstNonBlank(
                 findItemValue(detail.path("attribute"), "拍卖公司", "拍卖行"),
@@ -99,6 +112,10 @@ public class InitialStateExtractor implements FieldExtractor {
                 text(detail, "LogoUrl"),
                 text(pageData, "coverPic")
         );
+        data.originalImageUrl = firstNonBlank(
+                data.originalImageUrl,
+                extractPrimaryOriginalImageUrl(doc)
+        );
         data.description = firstNonBlank(
                 extractDescription(detail.path("extraInfo")),
                 data.description
@@ -109,7 +126,42 @@ public class InitialStateExtractor implements FieldExtractor {
         );
     }
 
-    private JsonNode extractPageData(Document doc) {
+    public static String extractPrimaryOriginalImageUrl(Document doc) {
+        JsonNode pageData = extractPageData(doc);
+        if (pageData == null || pageData.isMissingNode()) {
+            return null;
+        }
+
+        JsonNode detail = pageData.path("detail");
+        return firstNonBlankStatic(
+                firstText(detail.path("PicUrl")),
+                unwrapThumbUrl(textStatic(detail, "bigPic")),
+                firstText(detail.path("bigPicArray")),
+                unwrapThumbUrl(textStatic(detail, "middlePic")),
+                unwrapThumbUrl(textStatic(detail, "LogoUrl"))
+        );
+    }
+
+    public static String unwrapThumbUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String trimmed = url.trim();
+        int srcIdx = trimmed.indexOf("src=");
+        if (srcIdx < 0) {
+            return trimmed;
+        }
+
+        String value = trimmed.substring(srcIdx + 4);
+        int amp = value.indexOf('&');
+        if (amp >= 0) {
+            value = value.substring(0, amp);
+        }
+        String decoded = URLDecoder.decode(value, StandardCharsets.UTF_8);
+        return decoded.isBlank() ? null : decoded;
+    }
+
+    public static JsonNode extractPageData(Document doc) {
         Element script = doc.selectFirst("script:containsData(window.__INITIAL_STATE__)");
         if (script == null) {
             return null;
@@ -185,9 +237,10 @@ public class InitialStateExtractor implements FieldExtractor {
 
     private String buildExtraData(JsonNode pageData, JsonNode detail) {
         ObjectNode extra = OBJECT_MAPPER.createObjectNode();
+        TransactionPriceInfo transactionPriceInfo = extractTransactionPrice(detail, pageData);
 
         putIfPresent(extra, "creationEra", findItemValue(detail.path("extraInfo"), "创作年代"));
-        putIfPresent(extra, "transactionPrice", findItemValue(detail.path("extraInfo"), "成交价"));
+        putIfPresent(extra, "transactionPrice", transactionPriceInfo.value());
         putIfPresent(extra, "categoryLevel1", text(detail, "classCodeOneName"));
         putIfPresent(extra, "categoryLevel2", text(detail, "classCodeTwoName"));
         putIfPresent(extra, "currency", findItemValue(pageData.path("pc_extra_info"), "币种"));
@@ -207,6 +260,35 @@ public class InitialStateExtractor implements FieldExtractor {
         if (value != null) {
             node.put(fieldName, value);
         }
+    }
+
+    private TransactionPriceInfo extractTransactionPrice(JsonNode detail, JsonNode pageData) {
+        JsonNode detailItem = findByLabel(detail.path("extraInfo"), "成交价");
+        JsonNode detailPrice = detail.path("price");
+        JsonNode listItem = findByLabel(pageData.path("pc_extra_info"), "成交价");
+        JsonNode picAttribute = pageData.path("picAttribute");
+
+        String transactionPrice = firstNonBlank(
+                readPriceValue(detailItem),
+                readPriceValue(detailPrice),
+                normalizePriceText(text(picAttribute, "resultPrice")),
+                readPriceValue(listItem)
+        );
+        if (transactionPrice != null) {
+            return new TransactionPriceInfo(transactionPrice, false, null);
+        }
+
+        if (isUnavailable(detailItem) || isUnavailable(detailPrice) || isUnavailable(listItem)
+                || isUnavailableText(text(picAttribute, "resultPrice"))
+                || isUnavailableText(text(picAttribute, "resultNoLoginText"))) {
+            return new TransactionPriceInfo(null, false, "详情页未提供成交价");
+        }
+
+        if (isLoginRequired(detailItem) || isLoginRequired(detailPrice) || isLoginRequired(listItem)) {
+            return new TransactionPriceInfo(null, true, "需要登录后才能查看成交价");
+        }
+
+        return new TransactionPriceInfo(null, false, "详情页未返回成交价字段");
     }
 
     private JsonNode findByLabel(JsonNode items, String... labels) {
@@ -275,6 +357,36 @@ public class InitialStateExtractor implements FieldExtractor {
         return item == null ? null : text(item, "text");
     }
 
+    private String readPriceValue(JsonNode item) {
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return null;
+        }
+        return firstNonBlank(
+                normalizePriceText(text(item, "fullText")),
+                normalizePriceText(text(item, "text"))
+        );
+    }
+
+    private boolean isLoginRequired(JsonNode item) {
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return false;
+        }
+        boolean needMember = item.path("needMember").asInt(0) == 1;
+        String loginText = text(item, "loginText");
+        String maskedText = text(item, "nonMemberText");
+        String price = readPriceValue(item);
+        return price == null && (needMember || hasLoginHint(loginText) || isMaskedText(maskedText));
+    }
+
+    private boolean isUnavailable(JsonNode item) {
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return false;
+        }
+        return isUnavailableText(text(item, "text"))
+                || isUnavailableText(text(item, "fullText"))
+                || isUnavailableText(text(item, "nonMemberText"));
+    }
+
     private String text(JsonNode node, String field) {
         if (node == null || node.isMissingNode()) {
             return null;
@@ -303,6 +415,37 @@ public class InitialStateExtractor implements FieldExtractor {
         return cleaned.isBlank() ? null : cleaned;
     }
 
+    private String normalizePriceText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isBlank() || isUnavailableText(trimmed) || isMaskedText(trimmed) || hasLoginHint(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    private boolean isUnavailableText(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank()
+                || "未提供".equals(trimmed)
+                || "暂无".equals(trimmed)
+                || "-".equals(trimmed)
+                || "—".equals(trimmed);
+    }
+
+    private boolean hasLoginHint(String value) {
+        return value != null && value.contains("登录");
+    }
+
+    private boolean isMaskedText(String value) {
+        return value != null && value.contains("****");
+    }
+
     private String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {
@@ -310,5 +453,44 @@ public class InitialStateExtractor implements FieldExtractor {
             }
         }
         return null;
+    }
+
+    private static String firstText(JsonNode node) {
+        if (!node.isArray() || node.isEmpty()) {
+            return null;
+        }
+        String text = node.get(0).asText(null);
+        return text == null || text.isBlank() ? null : text.trim();
+    }
+
+    private static String textStatic(JsonNode node, String field) {
+        if (node == null || node.isMissingNode()) {
+            return null;
+        }
+
+        JsonNode child = node.path(field);
+        if (child.isMissingNode() || child.isNull()) {
+            return null;
+        }
+
+        String value = child.asText();
+        if (value == null) {
+            return null;
+        }
+
+        value = value.trim();
+        return value.isBlank() ? null : value;
+    }
+
+    private static String firstNonBlankStatic(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private record TransactionPriceInfo(String value, boolean loginRequired, String message) {
     }
 }

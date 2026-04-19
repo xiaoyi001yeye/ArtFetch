@@ -10,7 +10,8 @@ import java.util.List;
 public class ArtworkSpec {
 
     public static Specification<Artwork> search(Long taskId, String keyword, String artist,
-                                                String auctionDate, String lotNumber) {
+                                                String auctionDate, String lotNumber,
+                                                String hdImageSyncStatus) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -33,6 +34,32 @@ public class ArtworkSpec {
             }
             if (lotNumber != null && !lotNumber.isBlank()) {
                 predicates.add(cb.like(root.get("lotNumber"), "%" + lotNumber + "%"));
+            }
+            if (hdImageSyncStatus != null && !hdImageSyncStatus.isBlank()) {
+                switch (hdImageSyncStatus.trim().toUpperCase()) {
+                    case "SYNCED" ->
+                            predicates.add(cb.equal(root.get("hdImageStatus"), Artwork.HdImageStatus.DOWNLOADED));
+                    case "UNSYNCED" ->
+                            predicates.add(cb.or(
+                                    cb.isNull(root.get("hdImageStatus")),
+                                    cb.equal(root.get("hdImageStatus"), Artwork.HdImageStatus.MISSING)
+                            ));
+                    case "NO_PERMISSION" ->
+                            predicates.add(cb.and(
+                                    cb.equal(root.get("hdImageStatus"), Artwork.HdImageStatus.FAILED),
+                                    cb.like(root.get("hdImageLastError"), "%没有观看权限%")
+                            ));
+                    case "FAILED" ->
+                            predicates.add(cb.and(
+                                    cb.equal(root.get("hdImageStatus"), Artwork.HdImageStatus.FAILED),
+                                    cb.or(
+                                            cb.isNull(root.get("hdImageLastError")),
+                                            cb.notLike(root.get("hdImageLastError"), "%没有观看权限%")
+                                    )
+                            ));
+                    default -> {
+                    }
+                }
             }
 
             query.orderBy(cb.desc(root.get("createdAt")));

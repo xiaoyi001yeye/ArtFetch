@@ -1,5 +1,7 @@
 import axios from 'axios';
-import type { Artwork, PageResult, Task } from '../types';
+import type { Artwork, PageResult, Task, TaskType } from '../types';
+
+export type HdImageSyncStatus = 'SYNCED' | 'UNSYNCED' | 'NO_PERMISSION' | 'FAILED';
 
 const api = axios.create({
   baseURL: '/api',
@@ -15,7 +17,7 @@ api.interceptors.response.use(
 );
 
 // Tasks
-export const createTask = (data: { name: string; keyword: string }) =>
+export const createTask = (data: { name: string; keyword?: string; taskType: TaskType; targetTaskId?: number }) =>
   api.post<Task>('/tasks', data).then((r) => r.data);
 
 export const listTasks = (page = 0, size = 20) =>
@@ -46,6 +48,7 @@ export interface ArtworkQuery {
   artist?: string;
   auctionDate?: string;
   lotNumber?: string;
+  hdImageSyncStatus?: HdImageSyncStatus;
   page?: number;
   size?: number;
 }
@@ -56,6 +59,21 @@ export const listArtworks = (query: ArtworkQuery = {}) =>
 export const getArtwork = (id: number) =>
   api.get<Artwork>(`/artworks/${id}`).then((r) => r.data);
 
+export const originalImageViewUrl = (id: number) =>
+  `/api/artworks/${id}/original-image`;
+
+export const hdImageViewUrl = (id: number) =>
+  `/api/artworks/${id}/hd-image`;
+
+export const redownloadOriginalImage = (id: number) =>
+  api.post<Artwork>(`/artworks/${id}/original-image/redownload`).then((r) => r.data);
+
+export const redownloadHdImage = (id: number) =>
+  api.post<Artwork>(`/artworks/${id}/hd-image/redownload`).then((r) => r.data);
+
+export const supplementTransactionPrice = (id: number) =>
+  api.post<Artwork>(`/artworks/${id}/transaction-price/supplement`).then((r) => r.data);
+
 export const exportArtworksUrl = (query: Omit<ArtworkQuery, 'page' | 'size'>) => {
   const params = new URLSearchParams();
   if (query.taskId) params.set('taskId', String(query.taskId));
@@ -63,5 +81,6 @@ export const exportArtworksUrl = (query: Omit<ArtworkQuery, 'page' | 'size'>) =>
   if (query.artist) params.set('artist', query.artist);
   if (query.auctionDate) params.set('auctionDate', query.auctionDate);
   if (query.lotNumber) params.set('lotNumber', query.lotNumber);
+  if (query.hdImageSyncStatus) params.set('hdImageSyncStatus', query.hdImageSyncStatus);
   return `/api/artworks/export?${params.toString()}`;
 };

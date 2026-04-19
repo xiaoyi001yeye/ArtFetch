@@ -15,6 +15,11 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        jdbc:
+          batch_size: 50
+          batch_versioned_data: true
+        order_inserts: true
+        order_updates: true
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
@@ -26,9 +31,27 @@ artfetch:
     # 每轮抓取完毕后等待多少秒再开始下一轮（0 = 不重复，只抓一次）
     fetch-interval-seconds: 0
     # 两次请求之间的间隔毫秒（避免请求过快被限流）
-    request-delay-ms: 1000
+    request-delay-ms: 300
+    # 单任务内详情页抓取并发数
+    detail-fetch-concurrency: 96
   task:
     # 同时运行的最大任务数
-    max-concurrent-tasks: 5
+    max-concurrent-tasks: 8
     # 任务线程池大小
-    thread-pool-size: 10
+    thread-pool-size: 8
+  image:
+    storage-path: storage/original-images
+    download-timeout-ms: 30000
+    batch-size: 25
+    artwork-concurrency: 4
+    fetch-concurrency: 96
+  price:
+    fetch-timeout-ms: 30000
+    batch-size: 96
+    fetch-concurrency: 96
+  auth:
+    # 登录雅昌后的完整 Cookie Header；可通过环境变量 ARTFETCH_AUTH_ARTRON_COOKIE 覆盖
+    artron-cookie: ${ARTFETCH_AUTH_ARTRON_COOKIE:}
+    # 如未直接提供 Cookie，可提供账号密码，由后端自动登录换取 Cookie
+    artron-account: ${ARTFETCH_AUTH_ARTRON_ACCOUNT:}
+    artron-password: ${ARTFETCH_AUTH_ARTRON_PASSWORD:}

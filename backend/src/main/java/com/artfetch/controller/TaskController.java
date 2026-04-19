@@ -1,6 +1,7 @@
 package com.artfetch.controller;
 
 import com.artfetch.dto.CreateTaskRequest;
+import com.artfetch.dto.FetchFailureDto;
 import com.artfetch.dto.PageResult;
 import com.artfetch.dto.TaskDto;
 import com.artfetch.service.TaskService;
@@ -10,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -59,6 +61,22 @@ public class TaskController {
     public ResponseEntity<Map<String, String>> deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
         return ResponseEntity.ok(Map.of("message", "任务已删除"));
+    }
+
+    @GetMapping("/{id}/failures")
+    public ResponseEntity<List<FetchFailureDto>> listFailures(@PathVariable Long id) {
+        return ResponseEntity.ok(taskService.listFailures(id));
+    }
+
+    @PostMapping("/{id}/failures/retry")
+    public ResponseEntity<List<FetchFailureDto>> retryFailures(@PathVariable Long id) {
+        return ResponseEntity.ok(taskService.retryFailures(id));
+    }
+
+    @PostMapping("/{taskId}/failures/{failureId}/retry")
+    public ResponseEntity<FetchFailureDto> retryFailure(@PathVariable Long taskId,
+                                                        @PathVariable Long failureId) {
+        return ResponseEntity.ok(taskService.retryFailure(taskId, failureId));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

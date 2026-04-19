@@ -14,9 +14,17 @@ frontend/dist/
 .idea/
 .vscode/
 *.iml
+.DS_Store
 
 # Logs
 backend/logs/
+storage/original-images/
 
 # Docker volumes
 postgres_data/
+
+# ML
+**/.ipynb_checkpoints/
+ml/artifacts/
+ml/__pycache__/
+ml/src/**/__pycache__/
