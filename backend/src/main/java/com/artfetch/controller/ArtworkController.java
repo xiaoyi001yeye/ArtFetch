@@ -1,5 +1,8 @@
 package com.artfetch.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.artfetch.auth.service.AuditLogService;
+import com.artfetch.auth.support.PermissionCodes;
 import com.artfetch.dto.ArtworkDto;
 import com.artfetch.dto.PageResult;
 import com.artfetch.repository.ArtworkRepository;
@@ -33,8 +36,10 @@ public class ArtworkController {
     private final OriginalImageService originalImageService;
     private final HdImageService hdImageService;
     private final TransactionPriceService transactionPriceService;
+    private final AuditLogService auditLogService;
 
     @GetMapping
+    @SaCheckPermission(PermissionCodes.ARTWORK_VIEW)
     public ResponseEntity<PageResult<ArtworkDto>> listArtworks(
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) String keyword,
@@ -54,6 +59,7 @@ public class ArtworkController {
     }
 
     @GetMapping("/{id}")
+    @SaCheckPermission(PermissionCodes.ARTWORK_VIEW)
     public ResponseEntity<ArtworkDto> getArtwork(@PathVariable Long id) {
         return artworkRepository.findById(id)
                 .map(artwork -> ResponseEntity.ok(ArtworkDto.from(artwork)))
@@ -61,6 +67,7 @@ public class ArtworkController {
     }
 
     @GetMapping("/{id}/original-image")
+    @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_VIEW)
     public ResponseEntity<Resource> viewOriginalImage(@PathVariable Long id) {
         Resource resource = originalImageService.loadOriginalImage(id);
         String filename = originalImageService.originalFilename(id);
@@ -74,6 +81,7 @@ public class ArtworkController {
     }
 
     @GetMapping("/{id}/hd-image")
+    @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_VIEW)
     public ResponseEntity<Resource> viewHdImage(@PathVariable Long id) {
         Resource resource = hdImageService.loadHdImage(id);
         String filename = hdImageService.hdFilename(id);
@@ -87,21 +95,25 @@ public class ArtworkController {
     }
 
     @PostMapping("/{id}/original-image/redownload")
+    @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_REDOWNLOAD)
     public ResponseEntity<ArtworkDto> redownloadOriginalImage(@PathVariable Long id) {
         return ResponseEntity.ok(originalImageService.redownloadOriginalImage(id));
     }
 
     @PostMapping("/{id}/hd-image/redownload")
+    @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_REDOWNLOAD)
     public ResponseEntity<ArtworkDto> redownloadHdImage(@PathVariable Long id) {
         return ResponseEntity.ok(hdImageService.redownloadHdImage(id));
     }
 
     @PostMapping("/{id}/transaction-price/supplement")
+    @SaCheckPermission(PermissionCodes.ARTWORK_TRANSACTION_PRICE_SUPPLEMENT)
     public ResponseEntity<ArtworkDto> supplementTransactionPrice(@PathVariable Long id) {
         return ResponseEntity.ok(transactionPriceService.supplementSingleArtwork(id));
     }
 
     @GetMapping("/export")
+    @SaCheckPermission(PermissionCodes.ARTWORK_EXPORT)
     public ResponseEntity<byte[]> exportArtworks(
             @RequestParam(required = false) Long taskId,
             @RequestParam(required = false) String keyword,
@@ -112,6 +124,7 @@ public class ArtworkController {
 
         byte[] data = exportService.exportToExcel(taskId, blankToNull(keyword), blankToNull(artist),
                 blankToNull(auctionDate), blankToNull(lotNumber), blankToNull(hdImageSyncStatus));
+        auditLogService.recordSuccess("artwork.export", "ARTWORK", null, "导出艺术品数据");
 
         String filename = "artworks_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx";
         String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");

@@ -243,6 +243,40 @@ docker compose up -d --build
 - `auctionDate`
 - `lotNumber`
 
+## 模拟评估流程回归
+
+如果你想把“创建评估项目 → 专家评估 → 驳回重提 → 审核通过”这条链路手动跑一遍，并自动生成一份评估报告，可以直接执行：
+
+```bash
+./scripts/run-evaluation-scenario.sh
+```
+
+默认行为：
+
+- 调用本地后端 `http://localhost:8080/api`
+- 使用 `admin / 12345678` 登录
+- 按作者关键词 `周春芽` 自动挑选 2 件艺术品
+- 自动创建临时专家、临时审核人、临时指标和模板
+- 自动生成：
+  - `docs/generated/evaluation-scenario-report-<timestamp>.md`
+  - `docs/generated/evaluation-scenario-report-<timestamp>.json`
+
+可选环境变量：
+
+```bash
+ARTFETCH_BASE_URL=http://localhost:8080/api \
+ARTFETCH_ADMIN_USERNAME=admin \
+ARTFETCH_ADMIN_PASSWORD=12345678 \
+ARTFETCH_SCENARIO_ARTIST=周春芽 \
+ARTFETCH_REPORT_OUTPUT_DIR=docs/generated \
+./scripts/run-evaluation-scenario.sh
+```
+
+说明：
+
+- 脚本会自动禁用临时用户，并删除临时指标与模板。
+- 已完成项目不会自动删除，因为系统规则已限制完成态项目不可删除；报告中会保留项目 ID 方便后续追踪。
+
 ## 采集逻辑说明
 
 当前抓取流程分为两阶段：

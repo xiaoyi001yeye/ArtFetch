@@ -19,8 +19,11 @@ import { ArrowLeftOutlined, DollarOutlined, DownloadOutlined, LinkOutlined, Pict
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import * as api from '../api'
 import type { Artwork } from '../types'
+import { useAuth } from '../auth/AuthContext'
+import { permissions } from '../auth/permissions'
 
 export default function ArtworkDetailPage() {
+  const { hasPermission } = useAuth()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [artwork, setArtwork] = useState<Artwork | null>(null)
@@ -68,6 +71,15 @@ export default function ArtworkDetailPage() {
     }
   }
 
+  const handleOpenProtectedImage = async (url?: string) => {
+    if (!url) return
+    try {
+      await api.openProtectedBlob(url)
+    } catch (e: any) {
+      message.error(e.message)
+    }
+  }
+
   const handleSupplementTransactionPrice = async () => {
     if (!artwork) return
     setSupplementingPrice(true)
@@ -109,33 +121,38 @@ export default function ArtworkDetailPage() {
         }
         extra={
           <Space>
-            <Button
-              icon={<DollarOutlined />}
-              loading={supplementingPrice}
-              onClick={handleSupplementTransactionPrice}
-            >
-              补充成交价
-            </Button>
-            {canViewOriginal && (
-              <Button icon={<PictureOutlined />} href={api.originalImageViewUrl(artwork.id)} target="_blank">
+            {hasPermission(permissions.artworkTransactionPriceSupplement) && (
+              <Button
+                icon={<DollarOutlined />}
+                loading={supplementingPrice}
+                onClick={handleSupplementTransactionPrice}
+              >
+                补充成交价
+              </Button>
+            )}
+            {canViewOriginal && hasPermission(permissions.artworkImageView) && (
+              <Button icon={<PictureOutlined />} onClick={() => handleOpenProtectedImage(api.originalImageViewUrl(artwork.id))}>
                 查看已保存原图
               </Button>
             )}
-            <Tooltip title={hdImageTooltip}>
+            {hasPermission(permissions.artworkImageView) && (
+              <Tooltip title={hdImageTooltip}>
               <span>
                 <Button
                   icon={<PictureOutlined />}
-                  href={hdImageViewUrl}
-                  target="_blank"
+                  onClick={() => handleOpenProtectedImage(hdImageViewUrl)}
                   disabled={!artwork.hdImageAvailable}
                 >
                   查看超清无损图
                 </Button>
               </span>
-            </Tooltip>
-            <Button icon={<DownloadOutlined />} loading={redownloading} onClick={handleRedownloadOriginal}>
-              重新下载原图
-            </Button>
+              </Tooltip>
+            )}
+            {hasPermission(permissions.artworkImageRedownload) && (
+              <Button icon={<DownloadOutlined />} loading={redownloading} onClick={handleRedownloadOriginal}>
+                重新下载原图
+              </Button>
+            )}
             {artwork.sourceUrl && (
               <Button icon={<LinkOutlined />} href={artwork.sourceUrl} target="_blank">
                 查看原始数据

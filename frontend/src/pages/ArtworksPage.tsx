@@ -25,8 +25,16 @@ import { Link, useSearchParams } from 'react-router-dom'
 import * as api from '../api'
 import type { ArtworkQuery } from '../api'
 import type { Artwork, Task } from '../types'
+import { useAuth } from '../auth/AuthContext'
+import { permissions } from '../auth/permissions'
+
+const buildSearchTaskLabel = (task: Task) =>
+  task.parentTaskName
+    ? `${task.parentTaskName} / ${task.keyword}`
+    : task.name
 
 export default function ArtworksPage() {
+  const { hasPermission } = useAuth()
   const [searchParams] = useSearchParams()
   const initTaskId = searchParams.get('taskId') ? Number(searchParams.get('taskId')) : undefined
 
@@ -39,7 +47,7 @@ export default function ArtworksPage() {
   const [form] = Form.useForm()
 
   useEffect(() => {
-    api.listTasks(0, 100)
+    api.listTasks(0, 500)
       .then((r) => setTasks(r.items.filter((task) => task.taskType === 'SEARCH')))
       .catch(() => {})
     if (initTaskId) {
@@ -76,9 +84,12 @@ export default function ArtworksPage() {
     })
   }
 
-  const handleExport = () => {
-    const url = api.exportArtworksUrl(query)
-    window.open(url, '_blank')
+  const handleExport = async () => {
+    try {
+      await api.downloadArtworksExport(query)
+    } catch (e: any) {
+      message.error(e.message)
+    }
   }
 
   const renderTransactionPrice = (record: Artwork) => {
@@ -217,19 +228,21 @@ export default function ArtworksPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>艺术品数据</Typography.Title>
         </Col>
         <Col>
-          <Button type="primary" icon={<DownloadOutlined />} onClick={handleExport}>
-            导出 Excel
-          </Button>
+          {hasPermission(permissions.artworkExport) && (
+            <Button type="primary" icon={<DownloadOutlined />} onClick={handleExport}>
+              导出 Excel
+            </Button>
+          )}
         </Col>
       </Row>
 
       <Card style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" onFinish={handleSearch} initialValues={{ taskId: initTaskId }}>
           <Form.Item name="taskId" label="来源任务">
-            <Select allowClear placeholder="全部任务" style={{ width: 180 }}>
+            <Select allowClear placeholder="全部任务" style={{ width: 260 }}>
               {tasks.map((t) => (
                 <Select.Option key={t.id} value={t.id}>
-                  {t.name}
+                  {buildSearchTaskLabel(t)}
                 </Select.Option>
               ))}
             </Select>

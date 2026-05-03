@@ -55,3 +55,16 @@ artfetch:
     # 如未直接提供 Cookie，可提供账号密码，由后端自动登录换取 Cookie
     artron-account: ${ARTFETCH_AUTH_ARTRON_ACCOUNT:}
     artron-password: ${ARTFETCH_AUTH_ARTRON_PASSWORD:}
+    # ArtFetch 应用默认管理员，仅在用户表为空时初始化
+    admin-username: ${ARTFETCH_ADMIN_USERNAME:admin}
+    admin-password: ${ARTFETCH_ADMIN_PASSWORD:change-me}
+
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  timeout: 604800
+  active-timeout: -1
+  is-concurrent: true
+  is-share: false
+  token-style: uuid
+  is-log: false

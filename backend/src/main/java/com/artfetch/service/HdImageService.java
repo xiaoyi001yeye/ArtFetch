@@ -61,6 +61,8 @@ public class HdImageService {
 
     @PostConstruct
     void initTileExecutor() {
+        // Hundreds of tile decodes per artwork are much faster without ImageIO's temp-file cache.
+        ImageIO.setUseCache(false);
         int fetchConcurrency = Math.max(1, appProperties.getImage().getFetchConcurrency());
         AtomicInteger threadSeq = new AtomicInteger(1);
         tileExecutor = Executors.newFixedThreadPool(fetchConcurrency, runnable -> {
@@ -137,7 +139,8 @@ public class HdImageService {
                 );
                 updateTaskProgressAndMetrics(task.getId(), processed, totalCount, downloaded, snapshot);
 
-                log.info("超清无损图补充进度: taskId={}, batch={}/{}, processed={}, total={}, downloaded={}, skipped={}, failed={}, artworkConcurrency={}, tileConcurrency={}, batchDuration={}ms",
+                BatchTiming batchTiming = batchResult.batchTiming();
+                log.info("超清无损图补充进度: taskId={}, batch={}/{}, processed={}, total={}, downloaded={}, skipped={}, failed={}, artworkConcurrency={}, tileConcurrency={}, batchDuration={}ms, avgArtwork={}ms, slowestArtworkId={}, slowestArtwork={}ms, dominantStage={}, avgMetadata={}ms, avgStitch={}ms, avgPngWrite={}ms, avgDbSave={}ms, tiles={}/{}, tileBytes={}MiB, output={}MiB, avgTileRequest={}ms, maxTileRequest={}ms, avgTileDecode={}ms, maxTileDecode={}ms, avgTileDraw={}ms, maxTileDraw={}ms",
                         task.getId(),
                         batchIndex,
                         totalBatches,
@@ -148,7 +151,25 @@ public class HdImageService {
                         failed,
                         artworkConcurrency,
                         Math.max(1, appProperties.getImage().getFetchConcurrency()),
-                        batchResult.pageMetrics().getPageDurationMs());
+                        batchResult.pageMetrics().getPageDurationMs(),
+                        batchTiming.avgArtworkMs(),
+                        batchTiming.slowestArtworkId(),
+                        batchTiming.maxArtworkMs(),
+                        batchTiming.dominantStage(),
+                        batchTiming.avgMetadataMs(),
+                        batchTiming.avgStitchMs(),
+                        batchTiming.avgFileWriteMs(),
+                        batchTiming.avgDbSaveMs(),
+                        batchTiming.completedTiles(),
+                        batchTiming.totalTiles(),
+                        batchTiming.totalTileMiB(),
+                        batchTiming.totalOutputMiB(),
+                        batchTiming.avgTileRequestMs(),
+                        batchTiming.maxTileRequestMs(),
+                        batchTiming.avgTileDecodeMs(),
+                        batchTiming.maxTileDecodeMs(),
+                        batchTiming.avgTileDrawMs(),
+                        batchTiming.maxTileDrawMs());
             }
         } finally {
             artworkExecutor.shutdownNow();
@@ -205,8 +226,14 @@ public class HdImageService {
 
     @Transactional
     protected DownloadOutcome ensureHdImageStored(Long artworkId, boolean force) {
+        return ensureHdImageStoredWithMetrics(artworkId, force).outcome();
+    }
+
+    private ArtworkDownloadResult ensureHdImageStoredWithMetrics(Long artworkId, boolean force) {
+        long totalStart = System.nanoTime();
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
+        Long taskId = taskIdOf(artwork);
 
         Path root = storageRoot();
         Path existingPath = resolveStoredPath(root, artwork.getHdImagePath());
@@ -214,7 +241,12 @@ public class HdImageService {
                 && artwork.getHdImageStatus() == Artwork.HdImageStatus.DOWNLOADED
                 && existingPath != null
                 && Files.exists(existingPath)) {
-            return DownloadOutcome.SKIPPED;
+            return new ArtworkDownloadResult(
+                    DownloadOutcome.SKIPPED,
+                    nanosToMillis(System.nanoTime() - totalStart),
+                    ArtworkProcessMetrics.skipped(taskId, artworkId, resolveArtCode(artwork),
+                            nanosToMillis(System.nanoTime() - totalStart))
+            );
         }
 
         String artCode = resolveArtCode(artwork);
@@ -222,47 +254,158 @@ public class HdImageService {
             artwork.setHdImageStatus(Artwork.HdImageStatus.FAILED);
             artwork.setHdImageLastError("无法解析超清无损图拍品编号");
             artworkRepository.save(artwork);
-            return DownloadOutcome.FAILED;
+            long totalMs = nanosToMillis(System.nanoTime() - totalStart);
+            return new ArtworkDownloadResult(
+                    DownloadOutcome.FAILED,
+                    totalMs,
+                    ArtworkProcessMetrics.failed(taskId, artworkId, null, 0, 0, 0L, 0L,
+                            StitchMetrics.empty(), 0L, 0L, totalMs, "resolve-art-code")
+            );
         }
 
         String viewerUrl = VIEWER_URL_TEMPLATE.formatted(artCode);
         artwork.setHdImageSourceUrl(viewerUrl);
+        String stage = "prepare";
+        long metadataMs = 0L;
+        long fileWriteMs = 0L;
+        long dbSaveMs = 0L;
+        long outputBytes = 0L;
+        int width = 0;
+        int height = 0;
+        StitchMetrics stitchMetrics = StitchMetrics.empty();
 
         try {
             Files.createDirectories(root);
 
+            stage = "fetch-option";
+            long metadataStart = System.nanoTime();
             HdImageOption option = fetchHdImageOption(artCode, viewerUrl);
-            BufferedImage stitchedImage = stitchTiles(artCode, viewerUrl, option);
+            metadataMs = nanosToMillis(System.nanoTime() - metadataStart);
+            width = option.width();
+            height = option.height();
+
+            stage = "stitch-tiles";
+            StitchResult stitchResult = stitchTiles(artCode, viewerUrl, option);
+            BufferedImage stitchedImage = stitchResult.image();
+            stitchMetrics = stitchResult.metrics();
 
             String relativePath = buildRelativePath(artwork);
             Path targetPath = root.resolve(relativePath).normalize();
             Files.createDirectories(targetPath.getParent());
 
             Path tempPath = targetPath.resolveSibling(targetPath.getFileName() + ".tmp");
-            ImageIO.write(stitchedImage, "png", tempPath.toFile());
+            stage = "write-png";
+            long fileWriteStart = System.nanoTime();
+            writePng(tempPath, stitchedImage);
+            fileWriteMs = nanosToMillis(System.nanoTime() - fileWriteStart);
             try {
                 Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException atomicMoveError) {
                 Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
             }
+            outputBytes = Files.size(targetPath);
 
+            stage = "save-db";
+            long dbSaveStart = System.nanoTime();
             artwork.setHdImagePath(relativePath);
             artwork.setHdImageContentType(MediaType.IMAGE_PNG_VALUE);
-            artwork.setHdImageSize(Files.size(targetPath));
+            artwork.setHdImageSize(outputBytes);
             artwork.setHdImageDownloadedAt(LocalDateTime.now());
             artwork.setHdImageStatus(Artwork.HdImageStatus.DOWNLOADED);
             artwork.setHdImageLastError(null);
             artworkRepository.save(artwork);
+            dbSaveMs = nanosToMillis(System.nanoTime() - dbSaveStart);
 
             boolean existedBefore = existingPath != null && Files.exists(existingPath);
-            return (force || !existedBefore) ? DownloadOutcome.DOWNLOADED : DownloadOutcome.SKIPPED;
+            DownloadOutcome outcome = (force || !existedBefore) ? DownloadOutcome.DOWNLOADED : DownloadOutcome.SKIPPED;
+            long totalMs = nanosToMillis(System.nanoTime() - totalStart);
+            ArtworkProcessMetrics metrics = ArtworkProcessMetrics.finished(
+                    taskId,
+                    artworkId,
+                    artCode,
+                    width,
+                    height,
+                    stitchMetrics,
+                    outputBytes,
+                    metadataMs,
+                    fileWriteMs,
+                    dbSaveMs,
+                    totalMs,
+                    dominantStage(metadataMs, stitchMetrics.wallMs(), fileWriteMs, dbSaveMs)
+            );
+            if (outcome == DownloadOutcome.DOWNLOADED) {
+                log.info("超清无损图完成: taskId={}, artworkId={}, artCode={}, size={}x{}, tiles={}/{}x{}, output={}MiB, total={}ms, metadata={}ms, stitch={}ms, pngWrite={}ms, dbSave={}ms, tileBytes={}MiB, tileRequestAvg={}ms, tileRequestMax={}ms, tileDecodeAvg={}ms, tileDecodeMax={}ms, tileDrawAvg={}ms, tileDrawMax={}ms, dominantStage={}",
+                        taskId,
+                        artworkId,
+                        artCode,
+                        width,
+                        height,
+                        stitchMetrics.totalTiles(),
+                        stitchMetrics.rows(),
+                        stitchMetrics.columns(),
+                        metrics.outputMiB(),
+                        totalMs,
+                        metadataMs,
+                        stitchMetrics.wallMs(),
+                        fileWriteMs,
+                        dbSaveMs,
+                        stitchMetrics.totalTileMiB(),
+                        stitchMetrics.avgRequestMs(),
+                        stitchMetrics.maxRequestMs(),
+                        stitchMetrics.avgDecodeMs(),
+                        stitchMetrics.maxDecodeMs(),
+                        stitchMetrics.avgDrawMs(),
+                        stitchMetrics.maxDrawMs(),
+                        metrics.dominantStage());
+            }
+            return new ArtworkDownloadResult(outcome, totalMs, metrics);
         } catch (Exception e) {
-            log.warn("超清无损图下载失败: artworkId={}, artCode={}, message={}",
-                    artworkId, artCode, e.getMessage(), e);
+            if (e instanceof HdImageStitchException stitchException) {
+                stitchMetrics = stitchException.metrics();
+            }
+            long totalMs = nanosToMillis(System.nanoTime() - totalStart);
+            ArtworkProcessMetrics metrics = ArtworkProcessMetrics.failed(
+                    taskId,
+                    artworkId,
+                    artCode,
+                    width,
+                    height,
+                    metadataMs,
+                    fileWriteMs,
+                    stitchMetrics,
+                    dbSaveMs,
+                    outputBytes,
+                    totalMs,
+                    stage
+            );
+            log.warn("超清无损图下载失败: taskId={}, artworkId={}, artCode={}, stage={}, size={}x{}, tiles={}/{}, total={}ms, metadata={}ms, stitch={}ms, pngWrite={}ms, dbSave={}ms, tileBytes={}MiB, tileRequestAvg={}ms, tileRequestMax={}ms, tileDecodeAvg={}ms, tileDecodeMax={}ms, tileDrawAvg={}ms, tileDrawMax={}ms, dominantStage={}, message={}",
+                    taskId,
+                    artworkId,
+                    artCode,
+                    stage,
+                    width,
+                    height,
+                    stitchMetrics.completedTiles(),
+                    stitchMetrics.totalTiles(),
+                    totalMs,
+                    metadataMs,
+                    stitchMetrics.wallMs(),
+                    fileWriteMs,
+                    dbSaveMs,
+                    stitchMetrics.totalTileMiB(),
+                    stitchMetrics.avgRequestMs(),
+                    stitchMetrics.maxRequestMs(),
+                    stitchMetrics.avgDecodeMs(),
+                    stitchMetrics.maxDecodeMs(),
+                    stitchMetrics.avgDrawMs(),
+                    stitchMetrics.maxDrawMs(),
+                    metrics.dominantStage(),
+                    e.getMessage(),
+                    e);
             artwork.setHdImageStatus(Artwork.HdImageStatus.FAILED);
             artwork.setHdImageLastError(e.getMessage());
             artworkRepository.save(artwork);
-            return DownloadOutcome.FAILED;
+            return new ArtworkDownloadResult(DownloadOutcome.FAILED, totalMs, metrics);
         }
     }
 
@@ -305,7 +448,7 @@ public class HdImageService {
         return new HdImageOption(token, width, height, sessionCookieHeader);
     }
 
-    private BufferedImage stitchTiles(String artCode, String viewerUrl, HdImageOption option) throws IOException {
+    private StitchResult stitchTiles(String artCode, String viewerUrl, HdImageOption option) throws IOException {
         int width = option.width();
         int height = option.height();
         int tileSize = 256;
@@ -315,6 +458,15 @@ public class HdImageService {
         int rows = (int) Math.ceil(height / (double) tileSize);
         int totalTiles = rows * columns;
         int fetchConcurrency = Math.max(1, appProperties.getImage().getFetchConcurrency());
+        long stitchStart = System.nanoTime();
+        long totalTileBytes = 0L;
+        long totalRequestMs = 0L;
+        long maxRequestMs = 0L;
+        long totalDecodeMs = 0L;
+        long maxDecodeMs = 0L;
+        long totalDrawMs = 0L;
+        long maxDrawMs = 0L;
+        int completedTiles = 0;
 
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
@@ -323,11 +475,26 @@ public class HdImageService {
             if (fetchConcurrency <= 1 || totalTiles <= 1) {
                 for (int row = 0; row < rows; row++) {
                     for (int col = 0; col < columns; col++) {
-                        BufferedImage tile = fetchTile(artCode, viewerUrl, option.sessionCookieHeader(), maxLevel, col, row);
-                        drawTile(graphics, tile, col, row, width, height, tileSize, overlap);
+                        TileFetchResult tile = fetchTile(artCode, viewerUrl, option.sessionCookieHeader(), maxLevel, col, row);
+                        completedTiles++;
+                        totalTileBytes += tile.metrics().bytes();
+                        totalRequestMs += tile.metrics().requestMs();
+                        maxRequestMs = Math.max(maxRequestMs, tile.metrics().requestMs());
+                        totalDecodeMs += tile.metrics().decodeMs();
+                        maxDecodeMs = Math.max(maxDecodeMs, tile.metrics().decodeMs());
+                        long drawStart = System.nanoTime();
+                        drawTile(graphics, tile.image(), col, row, width, height, tileSize, overlap);
+                        long drawMs = nanosToMillis(System.nanoTime() - drawStart);
+                        totalDrawMs += drawMs;
+                        maxDrawMs = Math.max(maxDrawMs, drawMs);
                     }
                 }
-                return image;
+                return new StitchResult(
+                        image,
+                        buildStitchMetrics(columns, rows, totalTiles, completedTiles, totalTileBytes,
+                                totalRequestMs, maxRequestMs, totalDecodeMs, maxDecodeMs,
+                                totalDrawMs, maxDrawMs, stitchStart)
+                );
             }
 
             ExecutorCompletionService<TileFetchResult> completionService = new ExecutorCompletionService<>(tileExecutor);
@@ -335,41 +502,74 @@ public class HdImageService {
                 for (int col = 0; col < columns; col++) {
                     final int tileRow = row;
                     final int tileCol = col;
-                    futures.add(completionService.submit(() -> new TileFetchResult(
-                            tileCol,
-                            tileRow,
-                            fetchTile(artCode, viewerUrl, option.sessionCookieHeader(), maxLevel, tileCol, tileRow)
-                    )));
+                    futures.add(completionService.submit(
+                            () -> fetchTile(artCode, viewerUrl, option.sessionCookieHeader(), maxLevel, tileCol, tileRow)
+                    ));
                 }
             }
 
             for (int i = 0; i < totalTiles; i++) {
                 TileFetchResult tile = completionService.take().get();
+                completedTiles++;
+                totalTileBytes += tile.metrics().bytes();
+                totalRequestMs += tile.metrics().requestMs();
+                maxRequestMs = Math.max(maxRequestMs, tile.metrics().requestMs());
+                totalDecodeMs += tile.metrics().decodeMs();
+                maxDecodeMs = Math.max(maxDecodeMs, tile.metrics().decodeMs());
+                long drawStart = System.nanoTime();
                 drawTile(graphics, tile.image(), tile.col(), tile.row(), width, height, tileSize, overlap);
+                long drawMs = nanosToMillis(System.nanoTime() - drawStart);
+                totalDrawMs += drawMs;
+                maxDrawMs = Math.max(maxDrawMs, drawMs);
             }
         } catch (InterruptedException e) {
             cancelFutures(futures);
             Thread.currentThread().interrupt();
-            throw new IOException("超清无损图下载已中断", e);
+            throw new HdImageStitchException(
+                    "超清无损图下载已中断",
+                    e,
+                    buildStitchMetrics(columns, rows, totalTiles, completedTiles, totalTileBytes,
+                            totalRequestMs, maxRequestMs, totalDecodeMs, maxDecodeMs,
+                            totalDrawMs, maxDrawMs, stitchStart)
+            );
         } catch (ExecutionException e) {
             cancelFutures(futures);
             Throwable cause = e.getCause();
-            if (cause instanceof IOException ioException) {
-                throw ioException;
-            }
-            throw new IOException("超清无损图瓦片下载失败: " + (cause == null ? "" : cause.getMessage()), cause);
+            IOException ioException = cause instanceof IOException exception
+                    ? exception
+                    : new IOException("超清无损图瓦片下载失败: " + (cause == null ? "" : cause.getMessage()), cause);
+            throw new HdImageStitchException(
+                    ioException.getMessage(),
+                    ioException,
+                    buildStitchMetrics(columns, rows, totalTiles, completedTiles, totalTileBytes,
+                            totalRequestMs, maxRequestMs, totalDecodeMs, maxDecodeMs,
+                            totalDrawMs, maxDrawMs, stitchStart)
+            );
+        } catch (IOException | RuntimeException e) {
+            throw new HdImageStitchException(
+                    e.getMessage(),
+                    e,
+                    buildStitchMetrics(columns, rows, totalTiles, completedTiles, totalTileBytes,
+                            totalRequestMs, maxRequestMs, totalDecodeMs, maxDecodeMs,
+                            totalDrawMs, maxDrawMs, stitchStart)
+            );
         } finally {
             graphics.dispose();
         }
-        return image;
+        return new StitchResult(
+                image,
+                buildStitchMetrics(columns, rows, totalTiles, completedTiles, totalTileBytes,
+                        totalRequestMs, maxRequestMs, totalDecodeMs, maxDecodeMs,
+                        totalDrawMs, maxDrawMs, stitchStart)
+        );
     }
 
-    private BufferedImage fetchTile(String artCode,
-                                    String viewerUrl,
-                                    String sessionCookieHeader,
-                                    int level,
-                                    int col,
-                                    int row) throws IOException {
+    private TileFetchResult fetchTile(String artCode,
+                                      String viewerUrl,
+                                      String sessionCookieHeader,
+                                      int level,
+                                      int col,
+                                      int row) throws IOException {
         String tileUrl = IMAGE_SERVER + "/auction/images/" + artCode + "/" + level + "/" + col + "_" + row + ".jpg";
         Connection connection = Jsoup.connect(tileUrl)
                 .ignoreContentType(true)
@@ -382,7 +582,9 @@ public class HdImageService {
             connection.header("Cookie", sessionCookieHeader);
         }
 
+        long requestStart = System.nanoTime();
         Connection.Response response = connection.execute();
+        long requestMs = nanosToMillis(System.nanoTime() - requestStart);
         String contentType = response.contentType();
         if (contentType != null && (contentType.contains("json") || contentType.contains("text"))) {
             String body = response.body();
@@ -390,11 +592,13 @@ public class HdImageService {
         }
 
         byte[] bytes = response.bodyAsBytes();
+        long decodeStart = System.nanoTime();
         BufferedImage tile = ImageIO.read(new ByteArrayInputStream(bytes));
+        long decodeMs = nanosToMillis(System.nanoTime() - decodeStart);
         if (tile == null) {
             throw new IllegalStateException("超清无损图瓦片无法解析");
         }
-        return tile;
+        return new TileFetchResult(col, row, tile, new TileMetrics(bytes.length, requestMs, decodeMs));
     }
 
     private JsonNode parseJsonp(String body) throws IOException {
@@ -531,8 +735,26 @@ public class HdImageService {
         int skippedCount = 0;
         int failedCount = 0;
         int successCount = 0;
+        int measuredArtworkCount = 0;
         long totalLatencyMs = 0;
         long maxLatencyMs = 0;
+        long totalMeasuredArtworkMs = 0L;
+        long maxArtworkMs = 0L;
+        Long slowestArtworkId = null;
+        long totalMetadataMs = 0L;
+        long totalStitchMs = 0L;
+        long totalFileWriteMs = 0L;
+        long totalDbSaveMs = 0L;
+        long totalTileBytes = 0L;
+        long totalTileRequestMs = 0L;
+        long maxTileRequestMs = 0L;
+        long totalTileDecodeMs = 0L;
+        long maxTileDecodeMs = 0L;
+        long totalTileDrawMs = 0L;
+        long maxTileDrawMs = 0L;
+        long totalOutputBytes = 0L;
+        long totalTiles = 0L;
+        long completedTiles = 0L;
         List<Long> latencies = new ArrayList<>(batchArtworks.size());
 
         for (int i = 0; i < batchArtworks.size(); i++) {
@@ -546,6 +768,29 @@ public class HdImageService {
                 totalLatencyMs += result.durationMs();
                 maxLatencyMs = Math.max(maxLatencyMs, result.durationMs());
                 latencies.add(result.durationMs());
+                ArtworkProcessMetrics metrics = result.metrics();
+                if (metrics != null && result.outcome() != DownloadOutcome.SKIPPED) {
+                    measuredArtworkCount++;
+                    totalMeasuredArtworkMs += metrics.totalMs();
+                    maxArtworkMs = Math.max(maxArtworkMs, metrics.totalMs());
+                    totalMetadataMs += metrics.metadataMs();
+                    totalStitchMs += metrics.stitchMs();
+                    totalFileWriteMs += metrics.fileWriteMs();
+                    totalDbSaveMs += metrics.dbSaveMs();
+                    totalTileBytes += metrics.tileBytes();
+                    totalTileRequestMs += metrics.tileRequestMs();
+                    maxTileRequestMs = Math.max(maxTileRequestMs, metrics.maxTileRequestMs());
+                    totalTileDecodeMs += metrics.tileDecodeMs();
+                    maxTileDecodeMs = Math.max(maxTileDecodeMs, metrics.maxTileDecodeMs());
+                    totalTileDrawMs += metrics.tileDrawMs();
+                    maxTileDrawMs = Math.max(maxTileDrawMs, metrics.maxTileDrawMs());
+                    totalOutputBytes += metrics.outputBytes();
+                    totalTiles += metrics.totalTiles();
+                    completedTiles += metrics.completedTiles();
+                    if (metrics.totalMs() >= maxArtworkMs) {
+                        slowestArtworkId = metrics.artworkId();
+                    }
+                }
 
                 switch (result.outcome()) {
                     case DOWNLOADED -> {
@@ -578,13 +823,32 @@ public class HdImageService {
                 maxLatencyMs,
                 latencies
         );
-        return new BatchRunResult(downloadedCount, skippedCount, failedCount, pageMetrics);
+        BatchTiming batchTiming = new BatchTiming(
+                measuredArtworkCount,
+                totalMeasuredArtworkMs,
+                maxArtworkMs,
+                slowestArtworkId,
+                totalMetadataMs,
+                totalStitchMs,
+                totalFileWriteMs,
+                totalDbSaveMs,
+                totalTiles,
+                completedTiles,
+                totalTileBytes,
+                totalTileRequestMs,
+                maxTileRequestMs,
+                totalTileDecodeMs,
+                maxTileDecodeMs,
+                totalTileDrawMs,
+                maxTileDrawMs,
+                totalOutputBytes,
+                dominantStage(totalMetadataMs, totalStitchMs, totalFileWriteMs, totalDbSaveMs)
+        );
+        return new BatchRunResult(downloadedCount, skippedCount, failedCount, pageMetrics, batchTiming);
     }
 
     private ArtworkDownloadResult ensureHdImageStoredWithMetrics(Long artworkId) {
-        long start = System.nanoTime();
-        DownloadOutcome outcome = ensureHdImageStored(artworkId, false);
-        return new ArtworkDownloadResult(outcome, nanosToMillis(System.nanoTime() - start));
+        return ensureHdImageStoredWithMetrics(artworkId, false);
     }
 
     private void applyMetrics(SearchTask task, TaskPerformanceSnapshot snapshot) {
@@ -622,6 +886,61 @@ public class HdImageService {
 
     private long nanosToMillis(long nanos) {
         return Math.max(1L, nanos / 1_000_000L);
+    }
+
+    private void writePng(Path path, BufferedImage image) throws IOException {
+        if (!ImageIO.write(image, "png", path.toFile())) {
+            throw new IOException("未找到 PNG 编码器");
+        }
+    }
+
+    private StitchMetrics buildStitchMetrics(int columns,
+                                             int rows,
+                                             int totalTiles,
+                                             int completedTiles,
+                                             long totalTileBytes,
+                                             long totalRequestMs,
+                                             long maxRequestMs,
+                                             long totalDecodeMs,
+                                             long maxDecodeMs,
+                                             long totalDrawMs,
+                                             long maxDrawMs,
+                                             long stitchStart) {
+        return new StitchMetrics(
+                columns,
+                rows,
+                totalTiles,
+                completedTiles,
+                totalTileBytes,
+                totalRequestMs,
+                maxRequestMs,
+                totalDecodeMs,
+                maxDecodeMs,
+                totalDrawMs,
+                maxDrawMs,
+                nanosToMillis(System.nanoTime() - stitchStart)
+        );
+    }
+
+    private Long taskIdOf(Artwork artwork) {
+        return artwork.getTask() == null ? null : artwork.getTask().getId();
+    }
+
+    private String dominantStage(long metadataMs, long stitchMs, long fileWriteMs, long dbSaveMs) {
+        String dominantStage = "metadata";
+        long dominantDuration = metadataMs;
+        if (stitchMs >= dominantDuration) {
+            dominantStage = "stitch";
+            dominantDuration = stitchMs;
+        }
+        if (fileWriteMs >= dominantDuration) {
+            dominantStage = "png-write";
+            dominantDuration = fileWriteMs;
+        }
+        if (dbSaveMs >= dominantDuration) {
+            dominantStage = "db-save";
+        }
+        return dominantStage;
     }
 
     private void cancelArtworkFutures(List<Future<ArtworkDownloadResult>> futures) {
@@ -678,18 +997,273 @@ public class HdImageService {
         FAILED
     }
 
-    private record TileFetchResult(int col, int row, BufferedImage image) {
+    private record TileMetrics(long bytes, long requestMs, long decodeMs) {
     }
 
-    private record ArtworkDownloadResult(DownloadOutcome outcome, long durationMs) {
+    private record TileFetchResult(int col, int row, BufferedImage image, TileMetrics metrics) {
+    }
+
+    private record StitchResult(BufferedImage image, StitchMetrics metrics) {
+    }
+
+    private record StitchMetrics(int columns,
+                                 int rows,
+                                 int totalTiles,
+                                 int completedTiles,
+                                 long totalTileBytes,
+                                 long totalRequestMs,
+                                 long maxRequestMs,
+                                 long totalDecodeMs,
+                                 long maxDecodeMs,
+                                 long totalDrawMs,
+                                 long maxDrawMs,
+                                 long wallMs) {
+
+        private static StitchMetrics empty() {
+            return new StitchMetrics(0, 0, 0, 0, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+        }
+
+        private long avgRequestMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalRequestMs / completedTiles);
+        }
+
+        private long avgDecodeMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalDecodeMs / completedTiles);
+        }
+
+        private long avgDrawMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalDrawMs / completedTiles);
+        }
+
+        private double totalTileMiB() {
+            return totalTileBytes <= 0 ? 0D : Math.round(totalTileBytes / 104857.6D) / 10D;
+        }
+    }
+
+    private record ArtworkProcessMetrics(Long taskId,
+                                         Long artworkId,
+                                         String artCode,
+                                         int width,
+                                         int height,
+                                         int columns,
+                                         int rows,
+                                         int totalTiles,
+                                         int completedTiles,
+                                         long tileBytes,
+                                         long tileRequestMs,
+                                         long maxTileRequestMs,
+                                         long tileDecodeMs,
+                                         long maxTileDecodeMs,
+                                         long tileDrawMs,
+                                         long maxTileDrawMs,
+                                         long outputBytes,
+                                         long metadataMs,
+                                         long stitchMs,
+                                         long fileWriteMs,
+                                         long dbSaveMs,
+                                         long totalMs,
+                                         String dominantStage) {
+
+        private static ArtworkProcessMetrics finished(Long taskId,
+                                                      Long artworkId,
+                                                      String artCode,
+                                                      int width,
+                                                      int height,
+                                                      StitchMetrics stitchMetrics,
+                                                      long outputBytes,
+                                                      long metadataMs,
+                                                      long fileWriteMs,
+                                                      long dbSaveMs,
+                                                      long totalMs,
+                                                      String dominantStage) {
+            return new ArtworkProcessMetrics(
+                    taskId,
+                    artworkId,
+                    artCode,
+                    width,
+                    height,
+                    stitchMetrics.columns(),
+                    stitchMetrics.rows(),
+                    stitchMetrics.totalTiles(),
+                    stitchMetrics.completedTiles(),
+                    stitchMetrics.totalTileBytes(),
+                    stitchMetrics.totalRequestMs(),
+                    stitchMetrics.maxRequestMs(),
+                    stitchMetrics.totalDecodeMs(),
+                    stitchMetrics.maxDecodeMs(),
+                    stitchMetrics.totalDrawMs(),
+                    stitchMetrics.maxDrawMs(),
+                    outputBytes,
+                    metadataMs,
+                    stitchMetrics.wallMs(),
+                    fileWriteMs,
+                    dbSaveMs,
+                    totalMs,
+                    dominantStage
+            );
+        }
+
+        private static ArtworkProcessMetrics failed(Long taskId,
+                                                    Long artworkId,
+                                                    String artCode,
+                                                    int width,
+                                                    int height,
+                                                    long metadataMs,
+                                                    long fileWriteMs,
+                                                    StitchMetrics stitchMetrics,
+                                                    long dbSaveMs,
+                                                    long outputBytes,
+                                                    long totalMs,
+                                                    String stage) {
+            return new ArtworkProcessMetrics(
+                    taskId,
+                    artworkId,
+                    artCode,
+                    width,
+                    height,
+                    stitchMetrics.columns(),
+                    stitchMetrics.rows(),
+                    stitchMetrics.totalTiles(),
+                    stitchMetrics.completedTiles(),
+                    stitchMetrics.totalTileBytes(),
+                    stitchMetrics.totalRequestMs(),
+                    stitchMetrics.maxRequestMs(),
+                    stitchMetrics.totalDecodeMs(),
+                    stitchMetrics.maxDecodeMs(),
+                    stitchMetrics.totalDrawMs(),
+                    stitchMetrics.maxDrawMs(),
+                    outputBytes,
+                    metadataMs,
+                    stitchMetrics.wallMs(),
+                    fileWriteMs,
+                    dbSaveMs,
+                    totalMs,
+                    stage
+            );
+        }
+
+        private static ArtworkProcessMetrics skipped(Long taskId,
+                                                     Long artworkId,
+                                                     String artCode,
+                                                     long totalMs) {
+            return new ArtworkProcessMetrics(
+                    taskId,
+                    artworkId,
+                    artCode,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    totalMs,
+                    "skipped"
+            );
+        }
+
+        private double outputMiB() {
+            return outputBytes <= 0 ? 0D : Math.round(outputBytes / 104857.6D) / 10D;
+        }
+    }
+
+    private record ArtworkDownloadResult(DownloadOutcome outcome,
+                                         long durationMs,
+                                         ArtworkProcessMetrics metrics) {
     }
 
     private record BatchRunResult(int downloadedCount,
                                   int skippedCount,
                                   int failedCount,
-                                  PagePerformanceMetrics pageMetrics) {
+                                  PagePerformanceMetrics pageMetrics,
+                                  BatchTiming batchTiming) {
+    }
+
+    private record BatchTiming(int measuredArtworkCount,
+                               long totalArtworkMs,
+                               long maxArtworkMs,
+                               Long slowestArtworkId,
+                               long totalMetadataMs,
+                               long totalStitchMs,
+                               long totalFileWriteMs,
+                               long totalDbSaveMs,
+                               long totalTiles,
+                               long completedTiles,
+                               long totalTileBytes,
+                               long totalTileRequestMs,
+                               long maxTileRequestMs,
+                               long totalTileDecodeMs,
+                               long maxTileDecodeMs,
+                               long totalTileDrawMs,
+                               long maxTileDrawMs,
+                               long totalOutputBytes,
+                               String dominantStage) {
+
+        private long avgArtworkMs() {
+            return measuredArtworkCount <= 0 ? 0L : Math.round((double) totalArtworkMs / measuredArtworkCount);
+        }
+
+        private long avgMetadataMs() {
+            return measuredArtworkCount <= 0 ? 0L : Math.round((double) totalMetadataMs / measuredArtworkCount);
+        }
+
+        private long avgStitchMs() {
+            return measuredArtworkCount <= 0 ? 0L : Math.round((double) totalStitchMs / measuredArtworkCount);
+        }
+
+        private long avgFileWriteMs() {
+            return measuredArtworkCount <= 0 ? 0L : Math.round((double) totalFileWriteMs / measuredArtworkCount);
+        }
+
+        private long avgDbSaveMs() {
+            return measuredArtworkCount <= 0 ? 0L : Math.round((double) totalDbSaveMs / measuredArtworkCount);
+        }
+
+        private long avgTileRequestMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalTileRequestMs / completedTiles);
+        }
+
+        private long avgTileDecodeMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalTileDecodeMs / completedTiles);
+        }
+
+        private long avgTileDrawMs() {
+            return completedTiles <= 0 ? 0L : Math.round((double) totalTileDrawMs / completedTiles);
+        }
+
+        private double totalTileMiB() {
+            return totalTileBytes <= 0 ? 0D : Math.round(totalTileBytes / 104857.6D) / 10D;
+        }
+
+        private double totalOutputMiB() {
+            return totalOutputBytes <= 0 ? 0D : Math.round(totalOutputBytes / 104857.6D) / 10D;
+        }
     }
 
     private record HdImageOption(String token, int width, int height, String sessionCookieHeader) {
+    }
+
+    private static class HdImageStitchException extends IOException {
+        private final StitchMetrics metrics;
+
+        private HdImageStitchException(String message, Throwable cause, StitchMetrics metrics) {
+            super(message, cause);
+            this.metrics = metrics;
+        }
+
+        private StitchMetrics metrics() {
+            return metrics;
+        }
     }
 }

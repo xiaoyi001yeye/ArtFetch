@@ -19,6 +19,9 @@ frontend/dist/
 # Logs
 backend/logs/
 storage/original-images/
+docs/generated/*.md
+docs/generated/*.json
+!docs/generated/.gitkeep
 
 # Docker volumes
 postgres_data/

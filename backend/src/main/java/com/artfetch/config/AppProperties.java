@@ -63,5 +63,9 @@ public class AppProperties {
         private String artronAccount = "";
         /** 雅昌登录密码（本机环境变量注入） */
         private String artronPassword = "";
+        /** ArtFetch 默认管理员账号，仅在用户表为空时创建 */
+        private String adminUsername = "admin";
+        /** ArtFetch 默认管理员密码，仅在用户表为空时创建 */
+        private String adminPassword = "change-me";
     }
 }

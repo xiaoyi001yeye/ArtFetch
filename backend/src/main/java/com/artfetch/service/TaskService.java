@@ -17,6 +17,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -60,12 +63,26 @@ public class TaskService {
 
     @Transactional
     public TaskDto createTask(CreateTaskRequest request) {
-        SearchTask.TaskType taskType = parseTaskType(request.getTaskType());
+        SearchTask.TaskType requestedTaskType = parseTaskType(request.getTaskType());
+        if (requestedTaskType == SearchTask.TaskType.SEARCH || requestedTaskType == SearchTask.TaskType.SEARCH_BATCH) {
+            List<String> keywords = resolveSearchKeywords(request);
+            if (requestedTaskType == SearchTask.TaskType.SEARCH_BATCH) {
+                if (keywords.size() < 2) {
+                    throw new IllegalArgumentException("批量检索任务至少需要 2 个检索目标");
+                }
+                return createBatchSearchTask(request, keywords);
+            }
+            if (keywords.size() > 1) {
+                return createBatchSearchTask(request, keywords);
+            }
+            return createSingleSearchTask(request, keywords.get(0));
+        }
+
         SearchTask task = new SearchTask();
-        task.setTaskType(taskType);
-        task.setName(resolveTaskName(request, taskType));
-        task.setKeyword(resolveKeyword(request, taskType));
-        task.setTargetTaskId(resolveTargetTaskId(request, taskType));
+        task.setTaskType(requestedTaskType);
+        task.setName(resolveTaskName(request, requestedTaskType));
+        task.setKeyword(resolveKeyword(request, requestedTaskType));
+        task.setTargetTaskId(resolveTargetTaskId(request, requestedTaskType));
         task.setStatus(SearchTask.TaskStatus.PENDING);
         taskRepository.save(task);
         log.info("创建任务: id={}, type={}, keyword={}, targetTaskId={}",
@@ -94,6 +111,15 @@ public class TaskService {
         if (task.getStatus() == SearchTask.TaskStatus.CANCELLED) {
             throw new IllegalStateException("已取消的任务不能重新启动");
         }
+        if (task.getParentTaskId() != null) {
+            SearchTask parentTask = taskRepository.findById(task.getParentTaskId()).orElse(null);
+            if (parentTask != null && parentTask.getStatus() == SearchTask.TaskStatus.RUNNING) {
+                throw new IllegalStateException("所属批量任务运行中，请等待批量任务完成后再单独启动该目标");
+            }
+        }
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH && hasRunningBatchChild(task.getId())) {
+            throw new IllegalStateException("批量任务中存在运行中的子任务，请稍后重试");
+        }
 
         long runningCount = runningThreads.size();
         if (runningCount >= appProperties.getTask().getMaxConcurrentTasks()) {
@@ -120,6 +146,9 @@ public class TaskService {
         interruptTask(id);
         task.setStatus(SearchTask.TaskStatus.PAUSED);
         taskRepository.save(task);
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH) {
+            updateRunningBatchChildStatus(id, SearchTask.TaskStatus.PAUSED);
+        }
         log.info("暂停任务: id={}", id);
         return toDto(task);
     }
@@ -130,6 +159,9 @@ public class TaskService {
 
         if (task.getStatus() != SearchTask.TaskStatus.PAUSED) {
             throw new IllegalStateException("只有已暂停的任务才能恢复");
+        }
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH && hasRunningBatchChild(id)) {
+            throw new IllegalStateException("批量任务中存在运行中的子任务，请稍后重试");
         }
 
         task.setStatus(SearchTask.TaskStatus.RUNNING);
@@ -146,26 +178,23 @@ public class TaskService {
         interruptTask(id);
         task.setStatus(SearchTask.TaskStatus.CANCELLED);
         taskRepository.save(task);
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH) {
+            updateRunningBatchChildStatus(id, SearchTask.TaskStatus.CANCELLED);
+        }
         log.info("取消任务: id={}", id);
         return toDto(task);
     }
 
     @Transactional
     public void deleteTask(Long id) {
-        interruptTask(id);
-        SearchTask task = taskRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
-        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null, null)));
-        fetchFailureService.deleteTaskFailures(id);
-        taskRepository.delete(task);
-        log.info("删除任务: id={}", id);
+        deleteTaskInternal(id);
     }
 
-    public java.util.List<FetchFailureDto> listFailures(Long taskId) {
+    public List<FetchFailureDto> listFailures(Long taskId) {
         return fetchFailureService.listTaskFailures(taskId);
     }
 
-    public java.util.List<FetchFailureDto> retryFailures(Long taskId) {
+    public List<FetchFailureDto> retryFailures(Long taskId) {
         SearchTask task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
 
@@ -179,6 +208,43 @@ public class TaskService {
                 .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + taskId));
         FetchFailure failure = fetchFailureService.getTaskFailure(taskId, failureId);
         return FetchFailureDto.from(retryFailureInternal(task, failure));
+    }
+
+    private TaskDto createSingleSearchTask(CreateTaskRequest request, String keyword) {
+        SearchTask task = new SearchTask();
+        task.setTaskType(SearchTask.TaskType.SEARCH);
+        task.setName(resolveTaskName(request, SearchTask.TaskType.SEARCH));
+        task.setKeyword(keyword);
+        task.setStatus(SearchTask.TaskStatus.PENDING);
+        taskRepository.save(task);
+        log.info("创建检索任务: id={}, keyword={}", task.getId(), task.getKeyword());
+        return toDto(task);
+    }
+
+    private TaskDto createBatchSearchTask(CreateTaskRequest request, List<String> keywords) {
+        SearchTask batchTask = new SearchTask();
+        batchTask.setTaskType(SearchTask.TaskType.SEARCH_BATCH);
+        batchTask.setName(resolveTaskName(request, SearchTask.TaskType.SEARCH_BATCH));
+        batchTask.setKeyword(buildBatchKeywordSummary(keywords));
+        batchTask.setStatus(SearchTask.TaskStatus.PENDING);
+        batchTask.setCurrentPage(0);
+        batchTask.setTotalPages(keywords.size());
+        taskRepository.save(batchTask);
+
+        for (String keyword : keywords) {
+            SearchTask childTask = new SearchTask();
+            childTask.setTaskType(SearchTask.TaskType.SEARCH);
+            childTask.setParentTaskId(batchTask.getId());
+            childTask.setName(buildBatchChildTaskName(batchTask.getName(), keyword));
+            childTask.setKeyword(keyword);
+            childTask.setStatus(SearchTask.TaskStatus.PENDING);
+            childTask.setCreatedAt(batchTask.getCreatedAt().minusSeconds(1));
+            childTask.setUpdatedAt(childTask.getCreatedAt());
+            taskRepository.save(childTask);
+        }
+
+        log.info("创建批量检索任务: id={}, name={}, targets={}", batchTask.getId(), batchTask.getName(), keywords.size());
+        return toDto(batchTask);
     }
 
     private void submitTaskThread(SearchTask task) {
@@ -196,7 +262,9 @@ public class TaskService {
         try {
             while (!Thread.currentThread().isInterrupted()) {
                 SearchTask task = taskRepository.findById(taskId).orElse(null);
-                if (task == null || task.getStatus() != SearchTask.TaskStatus.RUNNING) break;
+                if (task == null || task.getStatus() != SearchTask.TaskStatus.RUNNING) {
+                    break;
+                }
 
                 try {
                     SearchTask.TaskType taskType = task.getTaskType() == null
@@ -217,6 +285,9 @@ public class TaskService {
                     } else if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
                         TransactionPriceTaskResult result = transactionPriceService.runTask(task);
                         markTaskCompleted(taskId, buildTransactionPriceSummary(result));
+                        break;
+                    } else if (taskType == SearchTask.TaskType.SEARCH_BATCH) {
+                        runBatchSearchTask(taskId);
                         break;
                     } else {
                         FetchRunResult result = fetchService.fetchAll(task);
@@ -254,6 +325,132 @@ public class TaskService {
             runningThreads.remove(taskId);
             log.info("Task[{}] 后台线程退出", taskId);
         }
+    }
+
+    private void runBatchSearchTask(Long batchTaskId) throws InterruptedException {
+        List<SearchTask> children = taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId);
+        if (children.isEmpty()) {
+            markTaskFailed(batchTaskId, "批量任务下没有可执行的检索目标");
+            return;
+        }
+
+        refreshBatchTaskProgress(batchTaskId, null);
+
+        for (int index = 0; index < children.size(); index++) {
+            SearchTask childSummary = children.get(index);
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Task interrupted");
+            }
+
+            SearchTask batchTask = taskRepository.findById(batchTaskId).orElse(null);
+            if (batchTask == null || batchTask.getStatus() != SearchTask.TaskStatus.RUNNING) {
+                return;
+            }
+
+            SearchTask childTask = taskRepository.findById(childSummary.getId()).orElse(null);
+            if (childTask == null || childTask.getStatus() == SearchTask.TaskStatus.COMPLETED) {
+                refreshBatchTaskProgress(batchTaskId, null);
+                continue;
+            }
+
+            if (runningThreads.containsKey(childTask.getId())) {
+                throw new IllegalStateException("子任务正在独立运行中: " + childTask.getName());
+            }
+
+            setBatchTaskMessage(batchTaskId,
+                    "正在检索目标 " + (index + 1)
+                            + "/" + children.size() + "：" + childTask.getKeyword());
+
+            childTask.setStatus(SearchTask.TaskStatus.RUNNING);
+            childTask.setErrorMessage(null);
+            taskRepository.save(childTask);
+
+            try {
+                FetchRunResult result = fetchService.fetchAll(childTask);
+                if (!result.isCompletedAllPages()) {
+                    markTaskFailed(childTask.getId(), result.getFatalErrorMessage());
+                } else {
+                    markTaskCompleted(childTask.getId(), null);
+                }
+            } catch (InterruptedException e) {
+                updateRunningBatchChildStatus(batchTaskId, resolveBatchChildTerminalStatus(batchTaskId));
+                throw e;
+            } catch (Exception e) {
+                log.error("批量检索子任务失败: batchTaskId={}, childTaskId={}, keyword={}, message={}",
+                        batchTaskId, childTask.getId(), childTask.getKeyword(), e.getMessage(), e);
+                markTaskFailed(childTask.getId(), e.getMessage());
+            }
+
+            refreshBatchTaskProgress(batchTaskId, null);
+        }
+
+        finishBatchTask(batchTaskId);
+    }
+
+    private void finishBatchTask(Long batchTaskId) {
+        taskRepository.findById(batchTaskId).ifPresent(batchTask -> {
+            List<SearchTask> children = taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId);
+            int completedCount = 0;
+            int failedCount = 0;
+            for (SearchTask child : children) {
+                if (child.getStatus() == SearchTask.TaskStatus.COMPLETED) {
+                    completedCount++;
+                } else if (child.getStatus() == SearchTask.TaskStatus.FAILED
+                        || child.getStatus() == SearchTask.TaskStatus.CANCELLED) {
+                    failedCount++;
+                }
+            }
+
+            batchTask.setStatus(SearchTask.TaskStatus.COMPLETED);
+            batchTask.setCurrentPage(completedCount);
+            batchTask.setTotalPages(children.size());
+            batchTask.setErrorMessage(failedCount > 0
+                    ? "批量检索已完成，成功 " + completedCount + " 个，失败 " + failedCount + " 个"
+                    : null);
+            taskRepository.save(batchTask);
+        });
+    }
+
+    private void refreshBatchTaskProgress(Long batchTaskId, String message) {
+        taskRepository.findById(batchTaskId).ifPresent(batchTask -> {
+            List<SearchTask> children = taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId);
+            batchTask.setCurrentPage((int) children.stream()
+                    .filter(child -> child.getStatus() == SearchTask.TaskStatus.COMPLETED)
+                    .count());
+            batchTask.setTotalPages(children.size());
+            if (message != null) {
+                batchTask.setErrorMessage(message);
+            }
+            taskRepository.save(batchTask);
+        });
+    }
+
+    private void setBatchTaskMessage(Long batchTaskId, String message) {
+        taskRepository.findById(batchTaskId).ifPresent(batchTask -> {
+            batchTask.setErrorMessage(message);
+            taskRepository.save(batchTask);
+        });
+    }
+
+    private SearchTask.TaskStatus resolveBatchChildTerminalStatus(Long batchTaskId) {
+        return taskRepository.findById(batchTaskId)
+                .map(SearchTask::getStatus)
+                .filter(status -> status == SearchTask.TaskStatus.PAUSED || status == SearchTask.TaskStatus.CANCELLED)
+                .orElse(SearchTask.TaskStatus.PAUSED);
+    }
+
+    private boolean hasRunningBatchChild(Long batchTaskId) {
+        return taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId).stream()
+                .anyMatch(child -> child.getStatus() == SearchTask.TaskStatus.RUNNING || runningThreads.containsKey(child.getId()));
+    }
+
+    private void updateRunningBatchChildStatus(Long batchTaskId, SearchTask.TaskStatus targetStatus) {
+        taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId).stream()
+                .filter(child -> child.getStatus() == SearchTask.TaskStatus.RUNNING)
+                .forEach(child -> {
+                    child.setStatus(targetStatus);
+                    taskRepository.save(child);
+                });
     }
 
     private void interruptTask(Long taskId) {
@@ -305,11 +502,40 @@ public class TaskService {
         });
     }
 
+    private void deleteTaskInternal(Long id) {
+        interruptTask(id);
+        SearchTask task = taskRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("任务不存在: " + id));
+
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH) {
+            List<Long> childIds = taskRepository.findByParentTaskIdOrderByIdAsc(id).stream()
+                    .map(SearchTask::getId)
+                    .toList();
+            for (Long childId : childIds) {
+                deleteTaskInternal(childId);
+            }
+        }
+
+        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null, null)));
+        fetchFailureService.deleteTaskFailures(id);
+        taskRepository.delete(task);
+        log.info("删除任务: id={}", id);
+    }
+
     private TaskDto toDto(SearchTask task) {
         TaskDto dto = TaskDto.from(task);
-        dto.setArtworkCount(artworkRepository.countByTaskId(task.getId()));
-        dto.setPendingFailureCount(fetchFailureService.countPendingFailures(task.getId()));
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH) {
+            dto.setArtworkCount(countBatchArtworks(task.getId()));
+            dto.setPendingFailureCount(countBatchPendingFailures(task.getId()));
+        } else {
+            dto.setArtworkCount(artworkRepository.countByTaskId(task.getId()));
+            dto.setPendingFailureCount(fetchFailureService.countPendingFailures(task.getId()));
+        }
         dto.setEstimatedRemainingMs(estimateRemainingMs(task));
+        if (task.getParentTaskId() != null) {
+            taskRepository.findById(task.getParentTaskId())
+                    .ifPresent(parentTask -> dto.setParentTaskName(parentTask.getName()));
+        }
         if (task.getTargetTaskId() != null) {
             taskRepository.findById(task.getTargetTaskId())
                     .ifPresent(targetTask -> dto.setTargetTaskName(targetTask.getName()));
@@ -317,10 +543,25 @@ public class TaskService {
         return dto;
     }
 
+    private long countBatchArtworks(Long batchTaskId) {
+        return taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId).stream()
+                .mapToLong(child -> artworkRepository.countByTaskId(child.getId()))
+                .sum();
+    }
+
+    private long countBatchPendingFailures(Long batchTaskId) {
+        return taskRepository.findByParentTaskIdOrderByIdAsc(batchTaskId).stream()
+                .mapToLong(child -> fetchFailureService.countPendingFailures(child.getId()))
+                .sum();
+    }
+
     private Long estimateRemainingMs(SearchTask task) {
         if (task.getStatus() == SearchTask.TaskStatus.COMPLETED
                 || task.getStatus() == SearchTask.TaskStatus.CANCELLED) {
             return 0L;
+        }
+        if (task.getTaskType() == SearchTask.TaskType.SEARCH_BATCH) {
+            return null;
         }
         if (task.getTotalPages() <= 0) {
             return null;
@@ -352,9 +593,8 @@ public class TaskService {
             return remainingBatches * task.getLastPageDurationMs();
         }
 
-        int remainingPages = remainingItems;
         long perPageEstimateMs = task.getLastPageDurationMs() + appProperties.getSource().getRequestDelayMs();
-        return remainingPages * perPageEstimateMs;
+        return remainingItems * perPageEstimateMs;
     }
 
     private FetchFailure retryFailureInternal(SearchTask task, FetchFailure failure) {
@@ -395,6 +635,41 @@ public class TaskService {
         }
     }
 
+    private List<String> resolveSearchKeywords(CreateTaskRequest request) {
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+
+        if (request.getKeywords() != null) {
+            request.getKeywords().forEach(keyword -> addKeyword(keywords, keyword));
+        }
+
+        if (keywords.isEmpty() && request.getKeyword() != null && !request.getKeyword().isBlank()) {
+            String rawKeyword = request.getKeyword().trim();
+            if (rawKeyword.contains("\n") || rawKeyword.contains("\r")) {
+                for (String line : rawKeyword.split("\\r?\\n")) {
+                    addKeyword(keywords, line);
+                }
+            } else {
+                addKeyword(keywords, rawKeyword);
+            }
+        }
+
+        if (keywords.isEmpty()) {
+            throw new IllegalArgumentException("检索关键词不能为空");
+        }
+
+        return new ArrayList<>(keywords);
+    }
+
+    private void addKeyword(LinkedHashSet<String> keywords, String keyword) {
+        if (keyword == null) {
+            return;
+        }
+        String normalized = keyword.trim();
+        if (!normalized.isBlank()) {
+            keywords.add(normalized);
+        }
+    }
+
     private String resolveTaskName(CreateTaskRequest request, SearchTask.TaskType taskType) {
         if (request.getName() != null && !request.getName().isBlank()) {
             return request.getName().trim();
@@ -420,10 +695,7 @@ public class TaskService {
                 || taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
             return requireTargetSearchTask(request.getTargetTaskId()).getKeyword();
         }
-        if (request.getKeyword() == null || request.getKeyword().isBlank()) {
-            throw new IllegalArgumentException("检索关键词不能为空");
-        }
-        return request.getKeyword().trim();
+        return resolveSearchKeywords(request).get(0);
     }
 
     private Long resolveTargetTaskId(CreateTaskRequest request, SearchTask.TaskType taskType) {
@@ -442,9 +714,20 @@ public class TaskService {
         SearchTask targetTask = taskRepository.findById(targetTaskId)
                 .orElseThrow(() -> new IllegalArgumentException("目标检索任务不存在: " + targetTaskId));
         if (targetTask.getTaskType() != null && targetTask.getTaskType() != SearchTask.TaskType.SEARCH) {
-            throw new IllegalArgumentException("补充类任务只能关联检索任务");
+            throw new IllegalArgumentException("补充类任务只能关联单个检索目标任务");
         }
         return targetTask;
+    }
+
+    private String buildBatchKeywordSummary(List<String> keywords) {
+        if (keywords.size() <= 3) {
+            return String.join(" / ", keywords);
+        }
+        return String.join(" / ", keywords.subList(0, 3)) + " 等" + keywords.size() + "个目标";
+    }
+
+    private String buildBatchChildTaskName(String batchTaskName, String keyword) {
+        return batchTaskName + " / " + keyword;
     }
 
     private String buildTransactionPriceSummary(TransactionPriceTaskResult result) {

@@ -12,6 +12,8 @@ public class TaskDto {
     private String name;
     private String keyword;
     private String taskType;
+    private Long parentTaskId;
+    private String parentTaskName;
     private Long targetTaskId;
     private String targetTaskName;
     private String status;
@@ -42,6 +44,7 @@ public class TaskDto {
         dto.setName(task.getName());
         dto.setKeyword(task.getKeyword());
         dto.setTaskType(task.getTaskType() == null ? SearchTask.TaskType.SEARCH.name() : task.getTaskType().name());
+        dto.setParentTaskId(task.getParentTaskId());
         dto.setTargetTaskId(task.getTargetTaskId());
         dto.setStatus(task.getStatus().name());
         dto.setCurrentPage(task.getCurrentPage());

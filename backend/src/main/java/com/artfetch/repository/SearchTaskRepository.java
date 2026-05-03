@@ -14,4 +14,6 @@ public interface SearchTaskRepository extends JpaRepository<SearchTask, Long> {
     Page<SearchTask> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     List<SearchTask> findByStatus(SearchTask.TaskStatus status);
+
+    List<SearchTask> findByParentTaskIdOrderByIdAsc(Long parentTaskId);
 }

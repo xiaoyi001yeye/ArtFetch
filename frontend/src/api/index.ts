@@ -1,5 +1,28 @@
 import axios from 'axios';
-import type { Artwork, PageResult, Task, TaskType } from '../types';
+import type {
+  Artwork,
+  ArtworkPreview,
+  ArtworkReviewSummary,
+  AuditLog,
+  AuthPermission,
+  AuthRole,
+  AuthUser,
+  CurrentUser,
+  CriterionItem,
+  EvaluationAuditRecord,
+  EvaluationMetricDefinition,
+  EvaluationMetricTemplate,
+  EvaluationProject,
+  EvaluationProjectListItem,
+  ExpertReview,
+  ExpertReviewForm,
+  MetricConfig,
+  LoginResponse,
+  PageResult,
+  Task,
+  TaskType,
+  UserStatus,
+} from '../types';
 
 export type HdImageSyncStatus = 'SYNCED' | 'UNSYNCED' | 'NO_PERMISSION' | 'FAILED';
 
@@ -8,16 +31,198 @@ const api = axios.create({
   timeout: 30000,
 });
 
+export const AUTH_TOKEN_STORAGE_KEY = 'artfetch.auth.token';
+export const getStoredToken = () => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+export const setStoredToken = (token: string) => localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+export const clearStoredToken = () => localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const msg = err.response?.data?.error || err.message || '请求失败';
+    if (err.response?.status === 401) {
+      clearStoredToken();
+      window.dispatchEvent(new Event('artfetch:unauthorized'));
+    }
+    const msg = err.response?.data?.message || err.response?.data?.error || err.message || '请求失败';
     return Promise.reject(new Error(msg));
   }
 );
 
+// Auth
+export const login = (data: { username: string; password: string }) =>
+  api.post<LoginResponse>('/auth/login', data).then((r) => r.data);
+
+export const logout = () =>
+  api.post('/auth/logout').then((r) => r.data);
+
+export const getCurrentUser = () =>
+  api.get<CurrentUser>('/auth/me').then((r) => r.data);
+
+export const changePassword = (data: { oldPassword: string; newPassword: string }) =>
+  api.post('/auth/change-password', data).then((r) => r.data);
+
+// Users / roles / permissions
+export const listUsers = (page = 0, size = 20) =>
+  api.get<PageResult<AuthUser>>('/users', { params: { page, size } }).then((r) => r.data);
+
+export const createUser = (data: { username: string; password: string; displayName: string; email?: string; phone?: string; roles: string[] }) =>
+  api.post<AuthUser>('/users', data).then((r) => r.data);
+
+export const updateUser = (id: number, data: { displayName: string; email?: string; phone?: string }) =>
+  api.put<AuthUser>(`/users/${id}`, data).then((r) => r.data);
+
+export const updateUserStatus = (id: number, status: UserStatus) =>
+  api.put<AuthUser>(`/users/${id}/status`, { status }).then((r) => r.data);
+
+export const resetUserPassword = (id: number, newPassword: string) =>
+  api.post(`/users/${id}/reset-password`, { newPassword }).then((r) => r.data);
+
+export const updateUserRoles = (id: number, roles: string[]) =>
+  api.put<AuthUser>(`/users/${id}/roles`, { roles }).then((r) => r.data);
+
+export const listRoles = (page = 0, size = 100) =>
+  api.get<PageResult<AuthRole>>('/roles', { params: { page, size } }).then((r) => r.data);
+
+export const createRole = (data: { code: string; name: string; description?: string; permissions: string[] }) =>
+  api.post<AuthRole>('/roles', data).then((r) => r.data);
+
+export const updateRole = (id: number, data: { name: string; description?: string }) =>
+  api.put<AuthRole>(`/roles/${id}`, data).then((r) => r.data);
+
+export const updateRoleStatus = (id: number, enabled: boolean) =>
+  api.put<AuthRole>(`/roles/${id}/status`, { enabled }).then((r) => r.data);
+
+export const updateRolePermissions = (id: number, permissions: string[]) =>
+  api.put<AuthRole>(`/roles/${id}/permissions`, { permissions }).then((r) => r.data);
+
+export const listPermissions = () =>
+  api.get<AuthPermission[]>('/permissions').then((r) => r.data);
+
+export const listAuditLogs = (query: { username?: string; action?: string; success?: boolean; page?: number; size?: number }) =>
+  api.get<PageResult<AuditLog>>('/audit-logs', { params: query }).then((r) => r.data);
+
+// Evaluation metrics / templates
+export const listEvaluationMetrics = (page = 0, size = 100, keyword?: string) =>
+  api.get<PageResult<EvaluationMetricDefinition>>('/evaluation-metrics', { params: { page, size, keyword } }).then((r) => r.data);
+
+export const listEnabledEvaluationMetrics = () =>
+  api.get<EvaluationMetricDefinition[]>('/evaluation-metrics/enabled').then((r) => r.data);
+
+export const createEvaluationMetric = (data: Partial<EvaluationMetricDefinition>) =>
+  api.post<EvaluationMetricDefinition>('/evaluation-metrics', data).then((r) => r.data);
+
+export const updateEvaluationMetric = (id: number, data: Partial<EvaluationMetricDefinition>) =>
+  api.put<EvaluationMetricDefinition>(`/evaluation-metrics/${id}`, data).then((r) => r.data);
+
+export const deleteEvaluationMetric = (id: number) =>
+  api.delete(`/evaluation-metrics/${id}`).then((r) => r.data);
+
+export const listEvaluationMetricTemplates = (page = 0, size = 100) =>
+  api.get<PageResult<EvaluationMetricTemplate>>('/evaluation-metric-templates', { params: { page, size } }).then((r) => r.data);
+
+export const getEvaluationMetricTemplate = (id: number) =>
+  api.get<EvaluationMetricTemplate>(`/evaluation-metric-templates/${id}`).then((r) => r.data);
+
+export const getEvaluationMetricTemplateItems = (id: number) =>
+  api.get<MetricConfig[]>(`/evaluation-metric-templates/${id}/items`).then((r) => r.data);
+
+export const createEvaluationMetricTemplate = (data: { name: string; description?: string; enabled?: boolean; items: MetricConfig[] }) =>
+  api.post<EvaluationMetricTemplate>('/evaluation-metric-templates', data).then((r) => r.data);
+
+export const updateEvaluationMetricTemplate = (id: number, data: { name: string; description?: string; enabled?: boolean; items: MetricConfig[] }) =>
+  api.put<EvaluationMetricTemplate>(`/evaluation-metric-templates/${id}`, data).then((r) => r.data);
+
+export const deleteEvaluationMetricTemplate = (id: number) =>
+  api.delete(`/evaluation-metric-templates/${id}`).then((r) => r.data);
+
+// Evaluations
+export const listEvaluations = (page = 0, size = 20) =>
+  api.get<PageResult<EvaluationProjectListItem>>('/evaluations', { params: { page, size } }).then((r) => r.data);
+
+export const listAssignedEvaluations = (page = 0, size = 20) =>
+  api.get<PageResult<EvaluationProjectListItem>>('/evaluations/assigned', { params: { page, size } }).then((r) => r.data);
+
+export const previewEvaluationArtworks = (data: { criteria: CriterionItem[]; page?: number; size?: number }) =>
+  api.post<PageResult<ArtworkPreview>>('/evaluations/preview-artworks', data).then((r) => r.data);
+
+export const createEvaluation = (data: {
+  name: string
+  description?: string
+  auditorId: number
+  criteria: CriterionItem[]
+  artworkIds: number[]
+  expertIds: number[]
+  metrics: MetricConfig[]
+}) => api.post<EvaluationProject>('/evaluations', data).then((r) => r.data);
+
+export const getEvaluation = (id: number) =>
+  api.get<EvaluationProject>(`/evaluations/${id}`).then((r) => r.data);
+
+export const updateEvaluation = (id: number, data: {
+  name: string
+  description?: string
+  auditorId: number
+  criteria: CriterionItem[]
+  artworkIds?: number[]
+  expertIds?: number[]
+  metrics?: MetricConfig[]
+}) => api.put<EvaluationProject>(`/evaluations/${id}`, data).then((r) => r.data);
+
+export const deleteEvaluation = (id: number) =>
+  api.delete(`/evaluations/${id}`).then((r) => r.data);
+
+export const listEvaluationMetricsForProject = (id: number) =>
+  api.get<MetricConfig[]>(`/evaluations/${id}/metrics`).then((r) => r.data);
+
+export const listEvaluationArtworks = (id: number) =>
+  api.get<EvaluationProject['artworks']>(`/evaluations/${id}/artworks`).then((r) => r.data);
+
+export const listEvaluationExperts = (id: number) =>
+  api.get<EvaluationProject['experts']>(`/evaluations/${id}/experts`).then((r) => r.data);
+
+export const submitEvaluationReview = (id: number) =>
+  api.post<EvaluationProject>(`/evaluations/${id}/submit-review`).then((r) => r.data);
+
+export const listEvaluationAuditRecords = (id: number) =>
+  api.get<EvaluationAuditRecord[]>(`/evaluations/${id}/audit-records`).then((r) => r.data);
+
+export const approveEvaluation = (id: number, comment?: string) =>
+  api.post<EvaluationProject>(`/evaluations/${id}/audit/approve`, { comment }).then((r) => r.data);
+
+export const rejectEvaluationReview = (id: number, reviewId: number, reason: string) =>
+  api.post<EvaluationProject>(`/evaluations/${id}/expert-reviews/${reviewId}/audit/reject`, { reason }).then((r) => r.data);
+
+// Expert reviews
+export const getMyExpertReview = (evaluationId: number, artworkId: number) =>
+  api.get<ExpertReviewForm>(`/evaluations/${evaluationId}/artworks/${artworkId}/my-review`).then((r) => r.data);
+
+export const saveMyExpertReview = (evaluationId: number, artworkId: number, data: {
+  finalEstimate?: string
+  finalEstimateCurrency?: string
+  comment?: string
+  scores: ExpertReview['scores']
+}) => api.put<ExpertReview>(`/evaluations/${evaluationId}/artworks/${artworkId}/my-review`, data).then((r) => r.data);
+
+export const submitMyExpertReview = (evaluationId: number, artworkId: number, data: {
+  finalEstimate?: string
+  finalEstimateCurrency?: string
+  comment?: string
+  scores: ExpertReview['scores']
+}) => api.post<ExpertReview>(`/evaluations/${evaluationId}/artworks/${artworkId}/my-review/submit`, data).then((r) => r.data);
+
+export const getArtworkReviewSummary = (evaluationId: number, artworkId: number) =>
+  api.get<ArtworkReviewSummary>(`/evaluations/${evaluationId}/artworks/${artworkId}/reviews`).then((r) => r.data);
+
 // Tasks
-export const createTask = (data: { name: string; keyword?: string; taskType: TaskType; targetTaskId?: number }) =>
+export const createTask = (data: { name: string; keyword?: string; keywords?: string[]; taskType: TaskType; targetTaskId?: number }) =>
   api.post<Task>('/tasks', data).then((r) => r.data);
 
 export const listTasks = (page = 0, size = 20) =>
@@ -83,4 +288,29 @@ export const exportArtworksUrl = (query: Omit<ArtworkQuery, 'page' | 'size'>) =>
   if (query.lotNumber) params.set('lotNumber', query.lotNumber);
   if (query.hdImageSyncStatus) params.set('hdImageSyncStatus', query.hdImageSyncStatus);
   return `/api/artworks/export?${params.toString()}`;
+};
+
+export const downloadArtworksExport = async (query: Omit<ArtworkQuery, 'page' | 'size'>) => {
+  const response = await api.get<Blob>('/artworks/export', {
+    params: query,
+    responseType: 'blob',
+  });
+  const disposition = response.headers['content-disposition'] || '';
+  const filenameMatch = disposition.match(/filename\*=UTF-8''([^;]+)/);
+  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `artworks_${Date.now()}.xlsx`;
+  const objectUrl = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+};
+
+export const openProtectedBlob = async (url: string) => {
+  const response = await api.get<Blob>(url.replace(/^\/api/, ''), { responseType: 'blob' });
+  const objectUrl = URL.createObjectURL(response.data);
+  window.open(objectUrl, '_blank', 'noopener,noreferrer');
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 };

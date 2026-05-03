@@ -63,6 +63,9 @@
     <logger name="com.artfetch.service.FetchService" level="INFO" additivity="true">
         <appender-ref ref="FETCH_FILE"/>
     </logger>
+    <logger name="com.artfetch.service.HdImageService" level="INFO" additivity="true">
+        <appender-ref ref="FETCH_FILE"/>
+    </logger>
     <logger name="com.artfetch.service.TaskService" level="INFO" additivity="true">
         <appender-ref ref="FETCH_FILE"/>
     </logger>

@@ -28,6 +28,9 @@ public class SearchTask {
     @Column(name = "task_type")
     private TaskType taskType = TaskType.SEARCH;
 
+    @Column(name = "parent_task_id")
+    private Long parentTaskId;
+
     @Column(name = "target_task_id")
     private Long targetTaskId;
 
@@ -97,6 +100,7 @@ public class SearchTask {
 
     public enum TaskType {
         SEARCH,
+        SEARCH_BATCH,
         ORIGINAL_IMAGE,
         HD_IMAGE,
         TRANSACTION_PRICE
