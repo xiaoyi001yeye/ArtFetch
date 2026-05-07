@@ -282,6 +282,7 @@ GET /api/artworks/export
 | `evaluation:create` | 创建评估项目 | 新建评估项目 |
 | `evaluation:update` | 编辑评估项目 | 编辑项目基本信息、艺术品、指标、专家 |
 | `evaluation:delete` | 删除评估项目 | 删除草稿或未开始项目 |
+| `evaluation:publish` | 发布评估项目 | 发布评估项目并锁定配置，允许专家开始评估 |
 | `evaluation:submit-review` | 提交审核 | 将评估项目提交审核 |
 | `evaluation:result:view` | 查看评估结果 | 查看多专家评估结果 |
 
@@ -387,6 +388,7 @@ GET /api/artworks/export
 | 查看自己的评估记录 | `/evaluations/:id/artworks/:artworkId/review` | `GET /api/evaluations/{id}/artworks/{artworkId}/my-review` | `evaluation-review:own:view` |
 | 保存自己的评估 | 同上 | `PUT /api/evaluations/{id}/artworks/{artworkId}/my-review` | `evaluation-review:own:save` |
 | 提交自己的评估 | 同上 | `POST /api/evaluations/{id}/artworks/{artworkId}/my-review/submit` | `evaluation-review:own:submit` |
+| 发布评估项目 | `/evaluations/:id` | `POST /api/evaluations/{id}/publish` | `evaluation:publish` |
 | 提交审核 | `/evaluations/:id` | `POST /api/evaluations/{id}/submit-review` | `evaluation:submit-review` |
 | 查看审核页 | `/evaluations/:id/audit` | `GET /api/evaluations/{id}` | `evaluation-audit:view` |
 | 审核通过项目 | `/evaluations/:id/audit` | `POST /api/evaluations/{id}/audit/approve` | `evaluation-audit:approve` |

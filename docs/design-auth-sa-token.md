@@ -974,6 +974,7 @@ void requireRejectReviewAccess(Long reviewId, Long auditorId);
 | `evaluation:create` | 创建评估项目 | EVALUATION | API | 新建评估项目 |
 | `evaluation:update` | 编辑评估项目 | EVALUATION | API | 编辑项目基本信息、艺术品、指标、专家 |
 | `evaluation:delete` | 删除评估项目 | EVALUATION | API | 删除草稿或未开始项目 |
+| `evaluation:publish` | 发布评估项目 | EVALUATION | API | 发布评估项目并锁定配置，允许专家开始评估 |
 | `evaluation:submit-review` | 提交审核 | EVALUATION | API | 将评估项目提交审核 |
 | `evaluation:result:view` | 查看评估结果 | EVALUATION | API | 查看多专家评估结果 |
 | `evaluation-review:assigned:view` | 查看我的评估 | EVALUATION_REVIEW | API | 查看分配给自己的评估项目 |

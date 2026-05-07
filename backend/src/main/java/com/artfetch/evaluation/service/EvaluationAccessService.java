@@ -58,6 +58,11 @@ public class EvaluationAccessService {
         dataScopeService.requirePermission(PermissionCodes.EVALUATION_DELETE);
     }
 
+    public void requireProjectPublish() {
+        currentUserService.requireEnabledCurrentUser();
+        dataScopeService.requirePermission(PermissionCodes.EVALUATION_PUBLISH);
+    }
+
     @Transactional(readOnly = true)
     public void requireOwnAssignedProject(Long evaluationId) {
         Long currentUserId = currentUserId();

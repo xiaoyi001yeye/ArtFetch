@@ -23,6 +23,7 @@ export const permissions = {
   evaluationCreate: 'evaluation:create',
   evaluationUpdate: 'evaluation:update',
   evaluationDelete: 'evaluation:delete',
+  evaluationPublish: 'evaluation:publish',
   evaluationSubmitReview: 'evaluation:submit-review',
   evaluationResultView: 'evaluation:result:view',
   evaluationReviewAssignedView: 'evaluation-review:assigned:view',

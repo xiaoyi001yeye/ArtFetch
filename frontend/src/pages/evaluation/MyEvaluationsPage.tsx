@@ -9,13 +9,24 @@ import type { EvaluationProjectListItem } from '../../types'
 const statusTag = (status: string) => {
   const colorMap: Record<string, string> = {
     PENDING: 'blue',
+    PUBLISHED: 'cyan',
     IN_PROGRESS: 'processing',
     READY_FOR_REVIEW: 'gold',
     IN_REVIEW: 'purple',
     REVIEW_REJECTED: 'red',
     COMPLETED: 'green',
   }
-  return <Tag color={colorMap[status] || 'default'}>{status}</Tag>
+  const textMap: Record<string, string> = {
+    PENDING: '待发布',
+    PUBLISHED: '已发布',
+    IN_PROGRESS: '进行中',
+    READY_FOR_REVIEW: '待提交审核',
+    IN_REVIEW: '审核中',
+    REVIEW_REJECTED: '审核驳回',
+    COMPLETED: '已完成',
+    CANCELLED: '已取消',
+  }
+  return <Tag color={colorMap[status] || 'default'}>{textMap[status] || status}</Tag>
 }
 
 export default function MyEvaluationsPage() {

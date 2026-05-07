@@ -12,5 +12,6 @@ import java.util.List;
 public interface EvaluationProjectRepository extends JpaRepository<EvaluationProject, Long> {
     Page<EvaluationProject> findByDeletedAtIsNullOrderByCreatedAtDesc(Pageable pageable);
     Page<EvaluationProject> findByIdInAndDeletedAtIsNullOrderByCreatedAtDesc(Collection<Long> ids, Pageable pageable);
+    Page<EvaluationProject> findByIdInAndStatusNotInAndDeletedAtIsNullOrderByCreatedAtDesc(Collection<Long> ids, Collection<EvaluationProjectStatus> statuses, Pageable pageable);
     List<EvaluationProject> findByStatusInAndDeletedAtIsNull(Collection<EvaluationProjectStatus> statuses);
 }

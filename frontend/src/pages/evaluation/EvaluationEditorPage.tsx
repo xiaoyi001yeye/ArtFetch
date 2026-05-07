@@ -324,7 +324,7 @@ export default function EvaluationEditorPage() {
           title="艺术品筛选条件"
           extra={!locked && <Button onClick={preview} loading={previewLoading}>预览匹配艺术品</Button>}
         >
-          {locked && <Typography.Text type="secondary">项目已进入进行中，不能修改艺术品、专家、指标。</Typography.Text>}
+          {locked && <Typography.Text type="secondary">项目已发布，不能修改项目数据。</Typography.Text>}
           <Form.List name="criteria">
             {(fields, { add, remove }) => (
               <Space direction="vertical" size={12} style={{ width: '100%' }}>

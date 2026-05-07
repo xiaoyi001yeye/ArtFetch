@@ -71,6 +71,12 @@ public class EvaluationController {
         return ResponseEntity.ok(Map.of("message", "评估项目已删除"));
     }
 
+    @PostMapping("/{id}/publish")
+    @SaCheckPermission(PermissionCodes.EVALUATION_PUBLISH)
+    public ResponseEntity<EvaluationProjectDto> publish(@PathVariable Long id) {
+        return ResponseEntity.ok(projectService.publish(id));
+    }
+
     @GetMapping("/{id}/metrics")
     public ResponseEntity<List<MetricConfigDto>> metrics(@PathVariable Long id) {
         return ResponseEntity.ok(projectService.listMetrics(id));

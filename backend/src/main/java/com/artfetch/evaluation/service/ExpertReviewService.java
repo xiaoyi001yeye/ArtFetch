@@ -67,7 +67,7 @@ public class ExpertReviewService {
         if (project.getConfigLockedAt() == null) {
             project.setConfigLockedAt(LocalDateTime.now());
         }
-        if (project.getStatus() == EvaluationProjectStatus.PENDING) {
+        if (project.getStatus() == EvaluationProjectStatus.PUBLISHED) {
             project.setStatus(EvaluationProjectStatus.IN_PROGRESS);
         }
         reviewRepository.save(review);
@@ -140,11 +140,14 @@ public class ExpertReviewService {
     }
 
     private void ensureReviewEditable(EvaluationProject project, boolean submitting) {
+        if (project.getStatus() == EvaluationProjectStatus.PENDING || project.getStatus() == EvaluationProjectStatus.DRAFT) {
+            throw new IllegalStateException("评估项目发布后才能开始专家评估");
+        }
         if (project.getStatus() == EvaluationProjectStatus.COMPLETED || project.getStatus() == EvaluationProjectStatus.CANCELLED) {
             throw new IllegalStateException("当前评估项目已结束，不能继续修改");
         }
-        if (!submitting && project.getStatus() == EvaluationProjectStatus.IN_REVIEW) {
-            throw new IllegalStateException("项目审核中，不能保存草稿");
+        if (project.getStatus() == EvaluationProjectStatus.IN_REVIEW) {
+            throw new IllegalStateException(submitting ? "项目审核中，不能提交评估" : "项目审核中，不能保存草稿");
         }
     }
 

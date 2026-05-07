@@ -65,7 +65,11 @@ public class EvaluationProjectService {
             if (ids.isEmpty()) {
                 return emptyPage(page, size);
             }
-            projectPage = projectRepository.findByIdInAndDeletedAtIsNullOrderByCreatedAtDesc(ids, PageRequest.of(page, size));
+            projectPage = projectRepository.findByIdInAndStatusNotInAndDeletedAtIsNullOrderByCreatedAtDesc(
+                    ids,
+                    List.of(EvaluationProjectStatus.DRAFT, EvaluationProjectStatus.PENDING),
+                    PageRequest.of(page, size)
+            );
         } else {
             projectPage = projectRepository.findByDeletedAtIsNullOrderByCreatedAtDesc(PageRequest.of(page, size));
         }
@@ -116,6 +120,9 @@ public class EvaluationProjectService {
     public EvaluationProjectDto update(Long id, UpdateEvaluationProjectRequest request) {
         accessService.requireProjectManage();
         EvaluationProject project = requireProject(id);
+        if (!isProjectEditable(project)) {
+            throw new IllegalStateException("评估项目发布后，不能修改项目数据");
+        }
         project.setName(request.name().trim());
         project.setDescription(blankToNull(request.description()));
         AuthUser auditor = requireAuditorUser(request.auditorId());
@@ -123,17 +130,34 @@ public class EvaluationProjectService {
         project.setAuditorName(auditor.getDisplayName());
         project.setCriteriaSnapshot(writeCriteria(request.criteria()));
 
-        boolean locked = isRangeLocked(project);
-        if (locked) {
-            if (request.artworkIds() != null || request.expertIds() != null || request.metrics() != null) {
-                throw new IllegalStateException("评估项目进入进行中后，不能修改艺术品、专家、指标");
-            }
-        } else if (request.artworkIds() != null && request.expertIds() != null && request.metrics() != null) {
+        if (request.artworkIds() != null && request.expertIds() != null && request.metrics() != null) {
             applyAssociations(project, request.artworkIds(), request.expertIds(), request.metrics());
         }
         projectRepository.save(project);
         recalculateProjectState(id);
         auditLogService.recordSuccess("evaluation.update", "EVALUATION", String.valueOf(id), "更新评估项目 " + project.getName());
+        return get(id);
+    }
+
+    @Transactional
+    public EvaluationProjectDto publish(Long id) {
+        accessService.requireProjectPublish();
+        EvaluationProject project = requireProject(id);
+        if (!isProjectEditable(project)) {
+            throw new IllegalStateException("只有待发布的评估项目才能发布");
+        }
+        if (project.getArtworkCount() <= 0 || project.getExpertCount() <= 0 || project.getExpectedReviewCount() <= 0) {
+            throw new IllegalStateException("评估项目必须配置艺术品、专家和评估记录后才能发布");
+        }
+        if (metricRepository.findByEvaluationIdOrderBySortOrderAscIdAsc(id).isEmpty()) {
+            throw new IllegalStateException("评估项目必须配置评估指标后才能发布");
+        }
+        project.setStatus(EvaluationProjectStatus.PUBLISHED);
+        if (project.getConfigLockedAt() == null) {
+            project.setConfigLockedAt(LocalDateTime.now());
+        }
+        projectRepository.save(project);
+        auditLogService.recordSuccess("evaluation.publish", "EVALUATION", String.valueOf(id), "发布评估项目 " + project.getName());
         return get(id);
     }
 
@@ -236,7 +260,9 @@ public class EvaluationProjectService {
             } else if (hasProgress) {
                 project.setStatus(EvaluationProjectStatus.IN_PROGRESS);
             } else {
-                project.setStatus(EvaluationProjectStatus.PENDING);
+                project.setStatus(project.getStatus() == EvaluationProjectStatus.PUBLISHED
+                        ? EvaluationProjectStatus.PUBLISHED
+                        : EvaluationProjectStatus.PENDING);
             }
         }
         if (project.getStatus() == EvaluationProjectStatus.COMPLETED && project.getCompletedAt() == null) {
@@ -424,10 +450,10 @@ public class EvaluationProjectService {
                 .toList();
     }
 
-    private boolean isRangeLocked(EvaluationProject project) {
+    private boolean isProjectEditable(EvaluationProject project) {
         return switch (project.getStatus()) {
-            case DRAFT, PENDING -> false;
-            default -> true;
+            case DRAFT, PENDING -> true;
+            default -> false;
         };
     }
 

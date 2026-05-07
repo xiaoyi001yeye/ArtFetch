@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Card, Descriptions, List, message, Modal, Space, Table, Tag, Typography } from 'antd'
+import { Button, Card, Descriptions, List, message, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import * as api from '../../api'
 import type { ArtworkReviewSummary, EvaluationAuditRecord, EvaluationProject } from '../../types'
@@ -9,7 +9,8 @@ import { formatStoredOptionValue, getInputComponentLabel, isNumericInputComponen
 
 const statusText: Record<string, string> = {
   DRAFT: '草稿',
-  PENDING: '待评估',
+  PENDING: '待发布',
+  PUBLISHED: '已发布',
   IN_PROGRESS: '进行中',
   READY_FOR_REVIEW: '待提交审核',
   IN_REVIEW: '审核中',
@@ -59,6 +60,22 @@ export default function EvaluationDetailPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>{project.name}</Typography.Title>
         <Space>
           {canEdit && <Button onClick={() => navigate(`/evaluations/${project.id}/edit`)}>编辑项目</Button>}
+          {hasPermission(permissions.evaluationPublish) && ['DRAFT', 'PENDING'].includes(project.status) && (
+            <Popconfirm
+              title="发布后将锁定项目配置，确认发布？"
+              onConfirm={async () => {
+                try {
+                  await api.publishEvaluation(project.id)
+                  message.success('项目已发布')
+                  load()
+                } catch (e: any) {
+                  message.error(e.message)
+                }
+              }}
+            >
+              <Button>发布</Button>
+            </Popconfirm>
+          )}
           {hasPermission(permissions.evaluationSubmitReview) && (
             <Button
               disabled={!['READY_FOR_REVIEW', 'REVIEW_REJECTED'].includes(project.status)}
@@ -155,7 +172,7 @@ export default function EvaluationDetailPage() {
               width: 240,
               render: (_, record) => (
                 <Space>
-                  {hasPermission(permissions.evaluationReviewOwnView) && isAssignedExpert && (
+                  {hasPermission(permissions.evaluationReviewOwnView) && isAssignedExpert && project.status !== 'PENDING' && project.status !== 'DRAFT' && (
                     <Link to={`/evaluations/${project.id}/artworks/${record.artworkId}/review`}>
                       <Button size="small">我的评估</Button>
                     </Link>

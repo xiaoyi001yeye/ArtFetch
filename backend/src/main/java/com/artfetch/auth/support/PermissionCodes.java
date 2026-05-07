@@ -29,6 +29,7 @@ public final class PermissionCodes {
     public static final String EVALUATION_CREATE = "evaluation:create";
     public static final String EVALUATION_UPDATE = "evaluation:update";
     public static final String EVALUATION_DELETE = "evaluation:delete";
+    public static final String EVALUATION_PUBLISH = "evaluation:publish";
     public static final String EVALUATION_SUBMIT_REVIEW = "evaluation:submit-review";
     public static final String EVALUATION_RESULT_VIEW = "evaluation:result:view";
     public static final String EVALUATION_REVIEW_ASSIGNED_VIEW = "evaluation-review:assigned:view";

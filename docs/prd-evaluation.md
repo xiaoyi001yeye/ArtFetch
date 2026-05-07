@@ -169,7 +169,8 @@
 
 - 管理员可创建、编辑、删除评估项目。
 - 在 `DRAFT`、`PENDING` 状态下，管理员可调整艺术品范围、专家列表和项目评估指标。
-- 评估项目一旦进入 `IN_PROGRESS` 及其后续状态，不允许再修改艺术品列表、专家列表和项目评估指标。
+- 管理员确认配置后发布项目，项目进入 `PUBLISHED` 状态并锁定项目数据。
+- 评估项目一旦进入 `PUBLISHED` 及其后续状态，不允许再修改项目基本信息、筛选条件、艺术品列表、专家列表和项目评估指标。
 - 评估项目进入执行后，如确需调整范围，建议通过取消原项目并新建项目的方式处理，避免评估口径混乱。
 
 ### 5.2 评估指标定义 Evaluation Metric Definition
@@ -745,7 +746,8 @@
 | 状态 | 说明 |
 |---|---|
 | DRAFT | 草稿 |
-| PENDING | 待评估 |
+| PENDING | 待发布，管理员仍可修改项目配置 |
+| PUBLISHED | 已发布，项目配置已锁定，专家可开始评估 |
 | IN_PROGRESS | 评估中，项目范围已锁定，不允许再修改艺术品、专家、项目指标 |
 | READY_FOR_REVIEW | 待提交审核，所有“专家 + 艺术品”评估均已完成但尚未提交审核 |
 | IN_REVIEW | 审核中 |
@@ -756,10 +758,10 @@
 建议状态流转：
 
 ```text
-DRAFT -> PENDING -> IN_PROGRESS -> READY_FOR_REVIEW -> IN_REVIEW -> COMPLETED
-                                      ^                 |
-                                      |                 v
-                                      +--------- REVIEW_REJECTED
+DRAFT -> PENDING -> PUBLISHED -> IN_PROGRESS -> READY_FOR_REVIEW -> IN_REVIEW -> COMPLETED
+                                                   ^                 |
+                                                   |                 v
+                                                   +--------- REVIEW_REJECTED
 ```
 
 ### 8.2 单件艺术品评估状态
@@ -1112,12 +1114,14 @@ POST /api/evaluations
 GET /api/evaluations/{id}
 PUT /api/evaluations/{id}
 DELETE /api/evaluations/{id}
+POST /api/evaluations/{id}/publish
 ```
 
 接口规则：
 
 - `PUT /api/evaluations/{id}` 在 `DRAFT`、`PENDING` 状态可修改项目全量配置。
-- 项目进入 `IN_PROGRESS` 后，`PUT /api/evaluations/{id}` 不得再修改艺术品列表、专家列表和项目指标。
+- `POST /api/evaluations/{id}/publish` 在 `DRAFT`、`PENDING` 状态可发布项目，发布后专家才能开始评估。
+- 项目进入 `PUBLISHED` 后，`PUT /api/evaluations/{id}` 不得再修改项目数据。
 - `DELETE /api/evaluations/{id}` 建议仅对未开始项目开放；已进入执行或已有审核痕迹的项目建议改为逻辑删除或取消。
 
 ### 11.2 评估条件预览

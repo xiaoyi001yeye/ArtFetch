@@ -12,6 +12,7 @@ const statusTag = (status: string) => {
   const colorMap: Record<string, string> = {
     DRAFT: 'default',
     PENDING: 'blue',
+    PUBLISHED: 'cyan',
     IN_PROGRESS: 'processing',
     READY_FOR_REVIEW: 'gold',
     IN_REVIEW: 'purple',
@@ -21,7 +22,8 @@ const statusTag = (status: string) => {
   }
   const textMap: Record<string, string> = {
     DRAFT: '草稿',
-    PENDING: '待评估',
+    PENDING: '待发布',
+    PUBLISHED: '已发布',
     IN_PROGRESS: '进行中',
     READY_FOR_REVIEW: '待提交审核',
     IN_REVIEW: '审核中',
@@ -118,6 +120,23 @@ export default function EvaluationsPage() {
             >
               编辑
             </Button>
+          )}
+          {hasPermission(permissions.evaluationPublish) && (
+            <Popconfirm
+              title="发布后将锁定项目配置，确认发布？"
+              disabled={!['DRAFT', 'PENDING'].includes(record.status)}
+              onConfirm={async () => {
+                try {
+                  await api.publishEvaluation(record.id)
+                  message.success('项目已发布')
+                  load()
+                } catch (e: any) {
+                  message.error(e.message)
+                }
+              }}
+            >
+              <Button size="small" disabled={!['DRAFT', 'PENDING'].includes(record.status)}>发布</Button>
+            </Popconfirm>
           )}
           {hasPermission(permissions.evaluationSubmitReview) && (
             <Button

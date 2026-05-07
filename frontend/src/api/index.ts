@@ -179,6 +179,9 @@ export const updateEvaluation = (id: number, data: {
 export const deleteEvaluation = (id: number) =>
   api.delete(`/evaluations/${id}`).then((r) => r.data);
 
+export const publishEvaluation = (id: number) =>
+  api.post<EvaluationProject>(`/evaluations/${id}/publish`).then((r) => r.data);
+
 export const listEvaluationMetricsForProject = (id: number) =>
   api.get<MetricConfig[]>(`/evaluations/${id}/metrics`).then((r) => r.data);
 
@@ -308,9 +311,13 @@ export const downloadArtworksExport = async (query: Omit<ArtworkQuery, 'page' | 
   URL.revokeObjectURL(objectUrl);
 };
 
-export const openProtectedBlob = async (url: string) => {
+export const createProtectedBlobUrl = async (url: string) => {
   const response = await api.get<Blob>(url.replace(/^\/api/, ''), { responseType: 'blob' });
-  const objectUrl = URL.createObjectURL(response.data);
+  return URL.createObjectURL(response.data);
+};
+
+export const openProtectedBlob = async (url: string) => {
+  const objectUrl = await createProtectedBlobUrl(url);
   window.open(objectUrl, '_blank', 'noopener,noreferrer');
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 };

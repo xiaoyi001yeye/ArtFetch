@@ -1,6 +1,7 @@
 package com.artfetch.config;
 
 import com.artfetch.entity.SearchTask;
+import com.artfetch.evaluation.entity.EvaluationProjectStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 public class SchemaMaintenanceService {
 
     private static final String TASK_TYPE_CONSTRAINT = "search_tasks_task_type_check";
+    private static final String EVALUATION_PROJECT_STATUS_CONSTRAINT = "evaluation_projects_status_check";
     private static final String ARTWORK_TASK_EXTERNAL_UNIQUE_INDEX = "uk_artworks_task_external_id";
     private static final String MAINTENANCE_FLAGS_TABLE = "app_maintenance_flags";
     private static final String TIMESTAMP_ALIGNMENT_FLAG = "timestamps_aligned_to_asia_shanghai_v1";
@@ -26,10 +28,7 @@ public class SchemaMaintenanceService {
     @EventListener(ApplicationReadyEvent.class)
     public void syncSchema() {
         ensureMaintenanceFlagsTable();
-        String enumValues = Arrays.stream(SearchTask.TaskType.values())
-                .map(SearchTask.TaskType::name)
-                .map(value -> "'" + value + "'")
-                .collect(Collectors.joining(", "));
+        String enumValues = enumConstraintValues(SearchTask.TaskType.values());
 
         jdbcTemplate.execute("alter table search_tasks drop constraint if exists " + TASK_TYPE_CONSTRAINT);
         jdbcTemplate.execute("alter table search_tasks add constraint " + TASK_TYPE_CONSTRAINT
@@ -37,6 +36,14 @@ public class SchemaMaintenanceService {
         log.info("数据库约束已同步: table=search_tasks, constraint={}, taskTypes={}",
                 TASK_TYPE_CONSTRAINT,
                 Arrays.stream(SearchTask.TaskType.values()).map(Enum::name).toList());
+
+        String projectStatusValues = enumConstraintValues(EvaluationProjectStatus.values());
+        jdbcTemplate.execute("alter table evaluation_projects drop constraint if exists " + EVALUATION_PROJECT_STATUS_CONSTRAINT);
+        jdbcTemplate.execute("alter table evaluation_projects add constraint " + EVALUATION_PROJECT_STATUS_CONSTRAINT
+                + " check (status in (" + projectStatusValues + "))");
+        log.info("数据库约束已同步: table=evaluation_projects, constraint={}, statuses={}",
+                EVALUATION_PROJECT_STATUS_CONSTRAINT,
+                Arrays.stream(EvaluationProjectStatus.values()).map(Enum::name).toList());
 
         alignHistoricalTimestamps();
 
@@ -58,6 +65,13 @@ public class SchemaMaintenanceService {
                 where external_id is not null
                 """.formatted(ARTWORK_TASK_EXTERNAL_UNIQUE_INDEX));
         log.info("数据库索引已同步: table=artworks, index={}", ARTWORK_TASK_EXTERNAL_UNIQUE_INDEX);
+    }
+
+    private String enumConstraintValues(Enum<?>[] values) {
+        return Arrays.stream(values)
+                .map(Enum::name)
+                .map(value -> "'" + value + "'")
+                .collect(Collectors.joining(", "));
     }
 
     private void ensureMaintenanceFlagsTable() {

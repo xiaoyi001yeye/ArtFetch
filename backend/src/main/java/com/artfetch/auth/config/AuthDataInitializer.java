@@ -39,6 +39,7 @@ public class AuthDataInitializer implements ApplicationRunner {
 
         admin.setPermissions(new LinkedHashSet<>(permissions.values()));
         expert.setPermissions(resolvePermissions(permissions, List.of(
+                "artwork:image:view",
                 "evaluation-review:assigned:view",
                 "evaluation-review:own:view",
                 "evaluation-review:own:save",
@@ -85,6 +86,7 @@ public class AuthDataInitializer implements ApplicationRunner {
                 seed("evaluation:create", "创建评估项目", "EVALUATION", "新建评估项目"),
                 seed("evaluation:update", "编辑评估项目", "EVALUATION", "编辑项目基本信息、艺术品、指标、专家"),
                 seed("evaluation:delete", "删除评估项目", "EVALUATION", "删除草稿或未开始项目"),
+                seed("evaluation:publish", "发布评估项目", "EVALUATION", "发布评估项目并锁定配置，允许专家开始评估"),
                 seed("evaluation:submit-review", "提交审核", "EVALUATION", "将评估项目提交审核"),
                 seed("evaluation:result:view", "查看评估结果", "EVALUATION", "查看多专家评估结果"),
                 seed("evaluation-review:assigned:view", "查看我的评估", "EVALUATION_REVIEW", "查看分配给自己的评估项目"),

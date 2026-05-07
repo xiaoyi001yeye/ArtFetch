@@ -27,12 +27,15 @@ export default function ExpertReviewPage() {
   const [artworks, setArtworks] = useState<EvaluationArtworkItem[]>([])
   const [scores, setScores] = useState<Record<number, ExpertReviewScore>>({})
   const [saving, setSaving] = useState(false)
+  const [imagePreviewLoading, setImagePreviewLoading] = useState(false)
+  const [hdPreviewOpen, setHdPreviewOpen] = useState(false)
+  const [hdPreviewUrl, setHdPreviewUrl] = useState<string>()
   const [form] = Form.useForm<ReviewFormValues>()
   const currentArtworkId = artworkId ? Number(artworkId) : undefined
 
   const readOnly = useMemo(() => {
     if (!data) return true
-    if (['COMPLETED', 'CANCELLED', 'IN_REVIEW'].includes(data.evaluationStatus)) return true
+    if (!['PUBLISHED', 'IN_PROGRESS', 'REVIEW_REJECTED'].includes(data.evaluationStatus)) return true
     return ['SUBMITTED', 'RESUBMITTED'].includes(data.review.status)
   }, [data])
 
@@ -67,6 +70,12 @@ export default function ExpertReviewPage() {
   useEffect(() => {
     load()
   }, [evaluationId, artworkId])
+
+  useEffect(() => () => {
+    if (hdPreviewUrl) {
+      URL.revokeObjectURL(hdPreviewUrl)
+    }
+  }, [hdPreviewUrl])
 
   const buildPayload = async () => {
     const values = await form.validateFields()
@@ -119,23 +128,29 @@ export default function ExpertReviewPage() {
   }
 
   const canViewProtectedImage = hasPermission(permissions.artworkImageView)
-  const canViewOriginal = canViewProtectedImage && Boolean(
-    data.artwork.originalImageAvailable || data.artwork.originalImageSourceUrl || data.artwork.sourceUrl || data.artwork.imageUrl,
-  )
   const canViewHd = canViewProtectedImage && Boolean(data.artwork.hdImageAvailable)
-  const imageActionText = canViewHd ? '点击查看高清大图' : canViewOriginal ? '点击查看原图' : undefined
+  const imageHintText = canViewHd ? '点击图片可查看高清无损大图。' : '点击图片可放大查看。'
 
   const handleOpenArtworkImage = async () => {
+    if (!canViewHd || imagePreviewLoading) return
+    setImagePreviewLoading(true)
+    const hideLoading = message.loading('正在加载高清无损大图...', 0)
     try {
-      if (canViewHd) {
-        await api.openProtectedBlob(api.hdImageViewUrl(data.artwork.id))
-        return
-      }
-      if (canViewOriginal) {
-        await api.openProtectedBlob(api.originalImageViewUrl(data.artwork.id))
-      }
+      const objectUrl = await api.createProtectedBlobUrl(api.hdImageViewUrl(data.artwork.id))
+      setHdPreviewUrl(objectUrl)
+      setHdPreviewOpen(true)
     } catch (e: any) {
       message.error(e.message)
+    } finally {
+      hideLoading()
+      setImagePreviewLoading(false)
+    }
+  }
+
+  const handleHdPreviewVisibleChange = (visible: boolean) => {
+    setHdPreviewOpen(visible)
+    if (!visible) {
+      setHdPreviewUrl(undefined)
     }
   }
 
@@ -258,52 +273,69 @@ export default function ExpertReviewPage() {
         </Descriptions>
       </Card>
 
-      <Card
-        title="作品图片"
-        extra={imageActionText ? (
-          <Button icon={<PictureOutlined />} onClick={handleOpenArtworkImage}>
-            {imageActionText}
-          </Button>
-        ) : undefined}
-      >
-        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-          {data.artwork.imageUrl ? (
-            <Image
-              src={data.artwork.imageUrl}
-              alt={data.artwork.title}
-              preview={false}
-              onClick={imageActionText ? handleOpenArtworkImage : undefined}
-              style={{
-                width: '100%',
-                maxWidth: 320,
-                maxHeight: 320,
-                objectFit: 'contain',
+      <Card title="作品图片">
+        <Space align="start" size={16} wrap>
+          <div>
+            {data.artwork.imageUrl ? (
+              <Image
+                src={data.artwork.imageUrl}
+                alt={data.artwork.title}
+                preview={!canViewHd}
+                onClick={canViewHd ? handleOpenArtworkImage : undefined}
+                style={{
+                  width: '100%',
+                  maxWidth: 320,
+                  maxHeight: 320,
+                  objectFit: 'contain',
+                  borderRadius: 8,
+                  cursor: imagePreviewLoading ? 'wait' : canViewHd ? 'pointer' : 'zoom-in',
+                }}
+                fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+              />
+            ) : (
+              <div style={{
+                width: 320,
+                maxWidth: '100%',
+                height: 240,
+                background: '#f0f0f0',
                 borderRadius: 8,
-                cursor: imageActionText ? 'pointer' : 'default',
-              }}
-              fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-            />
-          ) : (
-            <div style={{
-              width: 320,
-              maxWidth: '100%',
-              height: 240,
-              background: '#f0f0f0',
-              borderRadius: 8,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#aaa',
-            }}>
-              <Typography.Text type="secondary">暂无缩略图</Typography.Text>
-            </div>
-          )}
-          {(canViewHd || canViewOriginal) && (
-            <Typography.Text type="secondary">
-              {canViewHd ? '当前显示缩略图，点击可打开高清大图。' : '当前显示缩略图，点击可打开原图。'}
-            </Typography.Text>
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#aaa',
+              }}>
+                <Typography.Text type="secondary">暂无缩略图</Typography.Text>
+              </div>
+            )}
+          </div>
+          {data.artwork.imageUrl && (
+            <Space direction="vertical" size={4}>
+              {canViewHd && (
+                <Button type="link" icon={<PictureOutlined />} onClick={handleOpenArtworkImage} loading={imagePreviewLoading} style={{ padding: 0 }}>
+                  查看高清无损大图
+                </Button>
+              )}
+              <Typography.Text type="secondary">{imageHintText}</Typography.Text>
+            </Space>
           )}
         </Space>
+        {hdPreviewUrl && (
+          <Image
+            src={hdPreviewUrl}
+            alt={`${data.artwork.title} 高清无损大图`}
+            style={{ display: 'none' }}
+            preview={{
+              visible: hdPreviewOpen,
+              src: hdPreviewUrl,
+              movable: true,
+              minScale: 0.2,
+              maxScale: 8,
+              scaleStep: 0.5,
+              destroyOnHidden: true,
+              onVisibleChange: handleHdPreviewVisibleChange,
+            }}
+          />
+        )}
       </Card>
 
       <Card title="评分指标">
