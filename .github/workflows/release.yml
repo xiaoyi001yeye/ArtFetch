@@ -12,6 +12,9 @@ on:
       releaseNotes:
         description: Human-readable release notes
         required: true
+  push:
+    tags:
+      - "release/*"
 
 permissions:
   actions: read
@@ -27,9 +30,48 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve release inputs
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_PACKAGE_RUN_ID: ${{ github.event.inputs.packageRunId || '' }}
+          INPUT_RELEASE_NOTES: ${{ github.event.inputs.releaseNotes || '' }}
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            package_run_id="${INPUT_PACKAGE_RUN_ID}"
+            version="${INPUT_VERSION}"
+            release_notes="${INPUT_RELEASE_NOTES}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ] && printf '%s' "${GITHUB_REF_NAME}" | grep -Eq '^release/[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
+            version="${GITHUB_REF_NAME#release/}"
+            git_sha="$(git rev-parse HEAD)"
+            package_run_id="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/package.yml/runs?branch=main&event=push&status=completed&per_page=20" \
+                --jq ".workflow_runs[] | select(.head_sha == \"${git_sha}\" and .conclusion == \"success\") | .id" \
+                | head -n 1
+            )"
+            release_notes="Release ${version} from ${git_sha}."
+          else
+            echo "Release must be triggered manually or by a release/YYYY.MM.DD.N tag."
+            exit 1
+          fi
+
+          if [ -z "${package_run_id}" ]; then
+            echo "Could not resolve a successful Package workflow run for this release."
+            exit 1
+          fi
+
+          {
+            echo "packageRunId=${package_run_id}"
+            echo "version=${version}"
+            echo "releaseNotes<<EOF"
+            printf '%s\n' "${release_notes}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Validate version
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
             echo "Invalid version: $VERSION"
@@ -39,7 +81,7 @@ jobs:
       - name: Validate Package run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ inputs.packageRunId }}
+          RUN_ID: ${{ steps.release.outputs.packageRunId }}
         run: |
           conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .conclusion)"
           workflow="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .name)"
@@ -54,7 +96,7 @@ jobs:
           pattern: artfetch-package-*
           path: artifact
           merge-multiple: true
-          run-id: ${{ inputs.packageRunId }}
+          run-id: ${{ steps.release.outputs.packageRunId }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to GHCR
@@ -91,9 +133,9 @@ jobs:
 
       - name: Build release assets
         env:
-          VERSION: ${{ inputs.version }}
-          PACKAGE_RUN_ID: ${{ inputs.packageRunId }}
-          RELEASE_NOTES: ${{ inputs.releaseNotes }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PACKAGE_RUN_ID: ${{ steps.release.outputs.packageRunId }}
+          RELEASE_NOTES: ${{ steps.release.outputs.releaseNotes }}
         run: |
           mkdir -p "dist/artfetch-deploy-${VERSION}"
           cp -R artifact/. "dist/artfetch-deploy-${VERSION}/"
@@ -122,10 +164,16 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
-          git tag "release/${VERSION}" "$(python3 -c 'import json; print(json.load(open("dist/release-manifest.json"))["gitSha"])')"
-          git push origin "release/${VERSION}"
+          manifest_sha="$(python3 -c 'import json; print(json.load(open("dist/release-manifest.json"))["gitSha"])')"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            git tag "release/${VERSION}" "${manifest_sha}"
+            git push origin "release/${VERSION}"
+          elif [ "$(git rev-parse HEAD)" != "${manifest_sha}" ]; then
+            echo "Tag commit does not match release manifest gitSha."
+            exit 1
+          fi
           gh release create "release/${VERSION}" \
             dist/release-manifest.json \
             "dist/artfetch-deploy-${VERSION}.tgz" \
