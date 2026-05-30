@@ -162,5 +162,6 @@ jobs:
         with:
           name: artfetch-package-${{ steps.images.outputs.git_sha }}
           path: artifact/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
