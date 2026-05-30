@@ -153,8 +153,11 @@ Release Action 不重新构建代码。它只认可和晋升已经构建过的�
 ### 触发方式
 
 - `workflow_dispatch` 手动触发。
+- `release.published`：正式 Release 发布后自动进入 `production` Environment 部署队列。
 - 使用 GitHub Environment：`production`。
 - 生产环境开启 required reviewers。
+
+即使由 `release.published` 自动入队，部署仍必须经过 GitHub Environment `production` 的审批和 secrets 边界；该触发只减少人工复制版本号的步骤，不绕过生产审批。
 
 ### 输入
 
