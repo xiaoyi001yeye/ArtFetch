@@ -32,6 +32,7 @@ import EvaluationMetricsPage from './pages/evaluation/EvaluationMetricsPage'
 import EvaluationTemplatesPage from './pages/evaluation/EvaluationTemplatesPage'
 import HdImageMigrationsPage from './pages/HdImageMigrationsPage'
 import ObjectStorageSettingsPage from './pages/settings/ObjectStorageSettingsPage'
+import ExpertMobileRoutes from './pages/expert/ExpertMobileRoutes'
 import ArtFetchMark from './components/ArtFetchMark'
 import { RequireAuth } from './auth/RequireAuth'
 import { useAuth } from './auth/AuthContext'
@@ -132,6 +133,10 @@ export default function App() {
     if (location.pathname.startsWith('/audit-logs')) return 'audit-logs'
     return 'tasks'
   }, [location.pathname])
+
+  if (location.pathname.startsWith('/expert')) {
+    return <ExpertMobileRoutes />
+  }
 
   if (location.pathname === '/login') {
     return <LoginPage />

@@ -423,6 +423,73 @@ export interface ExpertReviewForm {
   review: ExpertReview
 }
 
+export interface ExpertMobileArtwork {
+  id: number
+  title: string
+  artist?: string
+  lotNumber?: string
+  medium?: string
+  format?: string
+  dimensions?: string
+  description?: string
+  valuation?: string
+  auctionHouse?: string
+  auctionName?: string
+  auctionSession?: string
+  auctionDate?: string
+  auctionLocation?: string
+  previewTime?: string
+  previewLocation?: string
+  previewImageAvailable: boolean
+  originalImageAvailable: boolean
+  hdImageAvailable: boolean
+}
+
+export interface ExpertMobileArtworkListItem {
+  artworkId: number
+  title: string
+  artist?: string
+  lotNumber?: string
+  reviewStatus: ExpertReviewStatus
+  rejectedReason?: string
+  previewImageAvailable: boolean
+  originalImageAvailable: boolean
+  hdImageAvailable: boolean
+  updatedAt: string
+}
+
+export interface ExpertMobileProjectListItem {
+  evaluationId: number
+  name: string
+  description?: string
+  evaluationStatus: EvaluationProjectStatus
+  totalCount: number
+  submittedCount: number
+  pendingCount: number
+  rejectedCount: number
+  draftCount: number
+  nextArtworkId?: number
+  updatedAt: string
+}
+
+export interface ExpertMobileProject extends ExpertMobileProjectListItem {
+  artworks: ExpertMobileArtworkListItem[]
+}
+
+export interface ExpertMobileReviewForm {
+  evaluationId: number
+  evaluationName: string
+  evaluationStatus: EvaluationProjectStatus
+  artworkIndex: number
+  artworkTotal: number
+  previousArtworkId?: number
+  nextArtworkId?: number
+  nextPendingArtworkId?: number
+  artwork: ExpertMobileArtwork
+  metrics: MetricConfig[]
+  review: ExpertReview
+}
+
 export interface ArtworkReviewSummary {
   artwork: Artwork
   reviews: ExpertReview[]

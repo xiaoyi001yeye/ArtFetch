@@ -6,7 +6,7 @@ import type { CurrentUser } from '../types'
 interface AuthContextValue {
   user: CurrentUser | null
   loading: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<CurrentUser>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   hasPermission: (permission: string) => boolean
@@ -42,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await api.login({ username, password })
     api.setStoredToken(response.tokenValue)
     setUser(response.user)
+    return response.user
   }, [])
 
   const logout = useCallback(async () => {

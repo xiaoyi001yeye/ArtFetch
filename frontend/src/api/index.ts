@@ -16,6 +16,9 @@ import type {
   EvaluationProjectListItem,
   ExpertReview,
   ExpertReviewForm,
+  ExpertMobileProject,
+  ExpertMobileProjectListItem,
+  ExpertMobileReviewForm,
   MetricConfig,
   LoginResponse,
   HdImageMigrationItem,
@@ -286,6 +289,39 @@ export const submitMyExpertReview = (evaluationId: number, artworkId: number, da
 
 export const getArtworkReviewSummary = (evaluationId: number, artworkId: number) =>
   api.get<ArtworkReviewSummary>(`/evaluations/${evaluationId}/artworks/${artworkId}/reviews`).then((r) => r.data);
+
+// Expert mobile web
+export const listExpertMobileProjects = (query: { filter?: string; page?: number; size?: number } = {}) =>
+  api.get<PageResult<ExpertMobileProjectListItem>>('/expert/evaluations', { params: query }).then((r) => r.data);
+
+export const getExpertMobileProject = (evaluationId: number) =>
+  api.get<ExpertMobileProject>(`/expert/evaluations/${evaluationId}/artworks`).then((r) => r.data);
+
+export const getExpertMobileReview = (evaluationId: number, artworkId: number) =>
+  api.get<ExpertMobileReviewForm>(`/expert/evaluations/${evaluationId}/artworks/${artworkId}/review`).then((r) => r.data);
+
+export const saveExpertMobileReview = (evaluationId: number, artworkId: number, data: {
+  finalEstimate?: string
+  finalEstimateCurrency?: string
+  comment?: string
+  scores: ExpertReview['scores']
+}) => api.put<ExpertReview>(`/expert/evaluations/${evaluationId}/artworks/${artworkId}/review`, data).then((r) => r.data);
+
+export const submitExpertMobileReview = (evaluationId: number, artworkId: number, data: {
+  finalEstimate?: string
+  finalEstimateCurrency?: string
+  comment?: string
+  scores: ExpertReview['scores']
+}) => api.post<ExpertReview>(`/expert/evaluations/${evaluationId}/artworks/${artworkId}/review/submit`, data).then((r) => r.data);
+
+export const expertPreviewImageUrl = (evaluationId: number, artworkId: number) =>
+  `/api/expert/evaluations/${evaluationId}/artworks/${artworkId}/images/preview`;
+
+export const expertOriginalImageUrl = (evaluationId: number, artworkId: number) =>
+  `/api/expert/evaluations/${evaluationId}/artworks/${artworkId}/images/original`;
+
+export const expertHdImageUrl = (evaluationId: number, artworkId: number) =>
+  `/api/expert/evaluations/${evaluationId}/artworks/${artworkId}/images/hd`;
 
 // Tasks
 export const createTask = (data: { name: string; keyword?: string; keywords?: string[]; taskType: TaskType; targetTaskId?: number }) =>

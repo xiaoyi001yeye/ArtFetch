@@ -5,6 +5,7 @@ import com.artfetch.auth.service.AuditLogService;
 import com.artfetch.auth.support.PermissionCodes;
 import com.artfetch.dto.ArtworkDto;
 import com.artfetch.dto.PageResult;
+import com.artfetch.evaluation.service.ExpertEvaluationAccessService;
 import com.artfetch.repository.ArtworkRepository;
 import com.artfetch.repository.ArtworkSpec;
 import com.artfetch.service.ExportService;
@@ -37,6 +38,7 @@ public class ArtworkController {
     private final HdImageService hdImageService;
     private final TransactionPriceService transactionPriceService;
     private final AuditLogService auditLogService;
+    private final ExpertEvaluationAccessService expertEvaluationAccessService;
 
     @GetMapping
     @SaCheckPermission(PermissionCodes.ARTWORK_VIEW)
@@ -69,6 +71,7 @@ public class ArtworkController {
     @GetMapping("/{id}/original-image")
     @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_VIEW)
     public ResponseEntity<Resource> viewOriginalImage(@PathVariable Long id) {
+        expertEvaluationAccessService.requireGeneralArtworkImageAccess(id);
         Resource resource = originalImageService.loadOriginalImage(id);
         String filename = originalImageService.originalFilename(id);
         MediaType mediaType = originalImageService.resolveMediaType(id);
@@ -83,6 +86,7 @@ public class ArtworkController {
     @GetMapping("/{id}/hd-image")
     @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_VIEW)
     public ResponseEntity<Resource> viewHdImage(@PathVariable Long id) {
+        expertEvaluationAccessService.requireGeneralArtworkImageAccess(id);
         Resource resource = hdImageService.loadHdImage(id);
         String filename = hdImageService.hdFilename(id);
         MediaType mediaType = hdImageService.resolveMediaType(id);

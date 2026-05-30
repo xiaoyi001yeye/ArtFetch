@@ -879,7 +879,7 @@ sequenceDiagram
 
 ## 12. 评估模块权限设计
 
-评估模块尚未实现，但鉴权设计需要预留。
+评估模块和专家移动端均已接入鉴权。专家移动端使用 `/api/expert/evaluations/*` 专用接口，避免复用包含后台字段和聚合信息的项目 DTO。
 
 ### 12.1 专家自己的接口
 
@@ -890,6 +890,11 @@ sequenceDiagram
 | `GET /api/evaluations/{id}/artworks/{artworkId}/my-review` | `evaluation-review:own:view` | 当前用户必须是项目专家 |
 | `PUT /api/evaluations/{id}/artworks/{artworkId}/my-review` | `evaluation-review:own:save` | 当前用户必须是该记录专家 |
 | `POST /api/evaluations/{id}/artworks/{artworkId}/my-review/submit` | `evaluation-review:own:submit` | 当前用户必须是该记录专家 |
+| `GET /api/expert/evaluations` | `evaluation-review:assigned:view` | 仅返回当前专家已发布项目和本人进度 |
+| `GET /api/expert/evaluations/{id}/artworks` | `evaluation-review:own:view` | 仅返回当前专家本人的作品状态，不返回其他专家或后台配置 |
+| `GET /api/expert/evaluations/{id}/artworks/{artworkId}/images/preview` | `artwork:image:view` | 当前专家必须被分配到项目，作品属于项目且存在本人评估记录 |
+| `GET /api/expert/evaluations/{id}/artworks/{artworkId}/images/original` | `artwork:image:view` | 当前专家必须被分配到项目，作品属于项目且存在本人评估记录 |
+| `GET /api/expert/evaluations/{id}/artworks/{artworkId}/images/hd` | `artwork:image:view` | 当前专家必须被分配到项目，作品属于项目且存在本人评估记录 |
 
 ### 12.2 审核和汇总接口
 
@@ -1170,6 +1175,8 @@ void recordFailure(String action, String resourceType, String resourceId, String
 - 修改密码后建议当前用户重新登录。
 - 管理员重置密码后不做强制改密状态；如需提醒用户修改密码，可由运营流程或前端提示承担。
 - 专家接口不允许前端传入 `expertId` 来决定访问哪个专家评估。
+- 专家端图片必须通过 `/api/expert/evaluations/*/images/*` 鉴权接口读取；通用艺术品图片接口也要对没有 `artwork:view` 的账号追加本人项目分配关系校验。
+- 通用评估详情、作品列表、指标列表和专家列表属于后台接口，要求 `evaluation:view`；专家端只能调用 `/api/expert/evaluations/*` 专用接口。
 - 后端必须做权限和数据范围校验，前端隐藏菜单按钮只作为体验优化。
 - 审计日志不记录明文密码或 token。
 

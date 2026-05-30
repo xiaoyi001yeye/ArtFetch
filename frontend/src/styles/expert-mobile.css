@@ -1,0 +1,173 @@
+.expert-mobile-shell {
+  min-height: 100vh;
+  background: #f4f6fb;
+  color: #1f2937;
+}
+
+.expert-mobile-content {
+  width: min(100%, 640px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 16px 16px calc(76px + env(safe-area-inset-bottom));
+}
+
+.expert-mobile-content.expert-review-content {
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+}
+
+.expert-mobile-nav {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.expert-mobile-nav-inner {
+  display: grid;
+  width: min(100%, 640px);
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.expert-mobile-nav a {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.expert-mobile-nav a.active {
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.expert-mobile-title-row,
+.expert-mobile-actions,
+.expert-mobile-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.expert-mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.expert-mobile-card {
+  border-radius: 14px;
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.05);
+}
+
+.expert-mobile-card .ant-card-body {
+  padding: 16px;
+}
+
+.expert-mobile-muted {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.expert-mobile-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.expert-mobile-preview {
+  display: flex;
+  overflow: hidden;
+  width: 92px;
+  height: 92px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #eef0f5;
+}
+
+.expert-mobile-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.expert-mobile-action-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(12px);
+}
+
+.expert-mobile-action-bar-inner {
+  display: grid;
+  width: min(100%, 640px);
+  grid-template-columns: 0.8fr 1fr 1.35fr;
+  gap: 8px;
+}
+
+.expert-mobile-action-bar .ant-btn,
+.expert-mobile-touch {
+  min-height: 44px;
+}
+
+.expert-mobile-metric-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.expert-mobile-metric-options .ant-checkbox-wrapper,
+.expert-mobile-metric-options .ant-radio-wrapper {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  margin-inline-start: 0;
+}
+
+.expert-mobile-login {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 16px;
+  background: linear-gradient(160deg, #eef2ff, #f8fafc 48%, #ecfeff);
+}
+
+.expert-mobile-login-card {
+  width: min(100%, 380px);
+  border-radius: 18px;
+  box-shadow: 0 18px 46px rgba(30, 41, 59, 0.11);
+}
+
+.expert-mobile-login-card .ant-input,
+.expert-mobile-login-card .ant-input-affix-wrapper,
+.expert-mobile-login-card .ant-btn {
+  min-height: 44px;
+}
+
+@media (max-width: 575px) {
+  .expert-mobile-content {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

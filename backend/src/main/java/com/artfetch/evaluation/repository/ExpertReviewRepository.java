@@ -13,6 +13,7 @@ public interface ExpertReviewRepository extends JpaRepository<ExpertReview, Long
     List<ExpertReview> findByEvaluationIdOrderByArtworkIdAscExpertNameAsc(Long evaluationId);
     List<ExpertReview> findByEvaluationIdAndArtworkIdOrderByExpertNameAsc(Long evaluationId, Long artworkId);
     List<ExpertReview> findByEvaluationIdAndExpertIdOrderByArtworkIdAsc(Long evaluationId, Long expertId);
+    List<ExpertReview> findByArtworkIdAndExpertId(Long artworkId, Long expertId);
     List<ExpertReview> findByEvaluationIdAndStatusIn(Long evaluationId, Collection<ExpertReviewStatus> statuses);
     long countByEvaluationId(Long evaluationId);
     long countByEvaluationIdAndStatusIn(Long evaluationId, Collection<ExpertReviewStatus> statuses);

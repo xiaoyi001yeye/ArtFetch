@@ -2,6 +2,9 @@ package com.artfetch.evaluation.service;
 
 import com.artfetch.dto.ArtworkDto;
 import com.artfetch.entity.Artwork;
+import com.artfetch.auth.service.AuditLogService;
+import com.artfetch.auth.service.DataScopeService;
+import com.artfetch.auth.support.PermissionCodes;
 import com.artfetch.evaluation.dto.*;
 import com.artfetch.evaluation.entity.EvaluationProject;
 import com.artfetch.evaluation.entity.EvaluationProjectStatus;
@@ -33,6 +36,8 @@ public class ExpertReviewService {
     private final ExpertReviewScoreRepository scoreRepository;
     private final EvaluationProjectMetricRepository metricRepository;
     private final ArtworkRepository artworkRepository;
+    private final DataScopeService dataScopeService;
+    private final AuditLogService auditLogService;
 
     @Transactional(readOnly = true)
     public ExpertReviewFormDto getMyReviewForm(Long evaluationId, Long artworkId) {
@@ -72,6 +77,8 @@ public class ExpertReviewService {
         }
         reviewRepository.save(review);
         projectService.recalculateProjectState(evaluationId);
+        auditLogService.recordSuccess("evaluation-review.draft.save", "EXPERT_REVIEW", String.valueOf(review.getId()),
+                "保存专家评估草稿 evaluationId=" + evaluationId + ", artworkId=" + artworkId);
         return toReviewDto(review);
     }
 
@@ -81,8 +88,12 @@ public class ExpertReviewService {
         EvaluationProject project = projectService.requireProject(evaluationId);
         ensureReviewEditable(project, true);
         ExpertReview review = requireOwnReview(evaluationId, artworkId);
+        boolean resubmitting = review.getStatus() == ExpertReviewStatus.REVIEW_REJECTED;
+        if (resubmitting) {
+            dataScopeService.requirePermission(PermissionCodes.EVALUATION_REVIEW_OWN_RESUBMIT);
+        }
         applyReviewContent(review, request, true);
-        if (review.getStatus() == ExpertReviewStatus.REVIEW_REJECTED) {
+        if (resubmitting) {
             review.setStatus(ExpertReviewStatus.RESUBMITTED);
             review.setResubmittedAt(LocalDateTime.now());
         } else {
@@ -93,6 +104,9 @@ public class ExpertReviewService {
         review.setRejectedAt(null);
         reviewRepository.save(review);
         projectService.recalculateProjectState(evaluationId);
+        auditLogService.recordSuccess(resubmitting ? "evaluation-review.resubmit" : "evaluation-review.submit",
+                "EXPERT_REVIEW", String.valueOf(review.getId()),
+                (resubmitting ? "重新提交" : "提交") + "专家评估 evaluationId=" + evaluationId + ", artworkId=" + artworkId);
         return toReviewDto(review);
     }
 

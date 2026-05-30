@@ -53,6 +53,7 @@ public class EvaluationController {
     }
 
     @GetMapping("/{id}")
+    @SaCheckPermission(PermissionCodes.EVALUATION_VIEW)
     public ResponseEntity<EvaluationProjectDto> get(@PathVariable Long id) {
         return ResponseEntity.ok(projectService.get(id));
     }
@@ -78,16 +79,19 @@ public class EvaluationController {
     }
 
     @GetMapping("/{id}/metrics")
+    @SaCheckPermission(PermissionCodes.EVALUATION_VIEW)
     public ResponseEntity<List<MetricConfigDto>> metrics(@PathVariable Long id) {
         return ResponseEntity.ok(projectService.listMetrics(id));
     }
 
     @GetMapping("/{id}/artworks")
+    @SaCheckPermission(PermissionCodes.EVALUATION_VIEW)
     public ResponseEntity<List<EvaluationArtworkItemDto>> artworks(@PathVariable Long id) {
         return ResponseEntity.ok(projectService.listArtworks(id));
     }
 
     @GetMapping("/{id}/experts")
+    @SaCheckPermission(PermissionCodes.EVALUATION_VIEW)
     public ResponseEntity<List<EvaluationProjectExpertDto>> experts(@PathVariable Long id) {
         return ResponseEntity.ok(projectService.listExperts(id));
     }
