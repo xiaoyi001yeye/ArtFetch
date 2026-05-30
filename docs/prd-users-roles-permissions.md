@@ -260,6 +260,15 @@ GET /api/artworks/export
 | `artwork:image:redownload` | 重新下载图片 | 重新下载原图或高清图 |
 | `artwork:transaction-price:supplement` | 补充成交价 | 单件补充成交价 |
 | `artwork:export` | 导出艺术品 | 导出 Excel |
+| `hd-image:migration:view` | 查看高清图迁移 | 查看高清大图对象存储迁移任务和明细 |
+| `hd-image:migration:manage` | 管理高清图迁移 | 创建、启动、暂停、取消和重试高清大图迁移任务 |
+
+### 7.2.1 系统设置权限
+
+| 权限编码 | 权限名称 | 对应功能 |
+|---|---|---|
+| `settings:object-storage:view` | 查看对象存储配置 | 查看火山 TOS 对象存储配置 |
+| `settings:object-storage:manage` | 管理对象存储配置 | 创建、编辑、启用、禁用和测试火山 TOS 配置 |
 
 ### 7.3 评估指标权限
 
@@ -371,6 +380,11 @@ GET /api/artworks/export
 | 重新下载高清图 | `/artworks/:id` | `POST /api/artworks/{id}/hd-image/redownload` | `artwork:image:redownload` |
 | 补充成交价 | `/artworks/:id` | `POST /api/artworks/{id}/transaction-price/supplement` | `artwork:transaction-price:supplement` |
 | 导出艺术品 | `/artworks` | `GET /api/artworks/export` | `artwork:export` |
+| 查看高清图迁移 | `/hd-image-migrations` | `GET /api/hd-image-migrations` | `hd-image:migration:view` |
+| 创建高清图迁移 | `/hd-image-migrations` | `POST /api/hd-image-migrations` | `hd-image:migration:manage` |
+| 控制高清图迁移 | `/hd-image-migrations` | `POST /api/hd-image-migrations/{id}/start` 等 | `hd-image:migration:manage` |
+| 查看对象存储配置 | `/settings/object-storage` | `GET /api/settings/object-storage` | `settings:object-storage:view` |
+| 管理对象存储配置 | `/settings/object-storage` | `POST/PUT/enable/test/disable /api/settings/object-storage` | `settings:object-storage:manage` |
 
 ### 9.2 艺术品评估功能映射
 

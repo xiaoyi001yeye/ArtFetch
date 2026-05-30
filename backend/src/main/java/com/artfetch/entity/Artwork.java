@@ -80,6 +80,38 @@ public class Artwork {
     @Column(name = "hd_image_path", columnDefinition = "TEXT")
     private String hdImagePath;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hd_image_storage_type")
+    private HdImageStorageType hdImageStorageType = HdImageStorageType.LOCAL;
+
+    @Column(name = "hd_image_object_config_id")
+    private Long hdImageObjectConfigId;
+
+    @Column(name = "hd_image_object_bucket")
+    private String hdImageObjectBucket;
+
+    @Column(name = "hd_image_object_key", columnDefinition = "TEXT")
+    private String hdImageObjectKey;
+
+    @Column(name = "hd_image_object_etag")
+    private String hdImageObjectEtag;
+
+    @Column(name = "hd_image_object_size")
+    private Long hdImageObjectSize;
+
+    @Column(name = "hd_image_object_uploaded_at")
+    private LocalDateTime hdImageObjectUploadedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hd_image_migration_status")
+    private HdImageMigrationStatus hdImageMigrationStatus = HdImageMigrationStatus.NOT_MIGRATED;
+
+    @Column(name = "hd_image_migration_last_error", columnDefinition = "TEXT")
+    private String hdImageMigrationLastError;
+
+    @Column(name = "hd_image_migration_updated_at")
+    private LocalDateTime hdImageMigrationUpdatedAt;
+
     @Column(name = "hd_image_content_type")
     private String hdImageContentType;
 
@@ -141,5 +173,20 @@ public class Artwork {
         MISSING,
         DOWNLOADED,
         FAILED
+    }
+
+    public enum HdImageStorageType {
+        LOCAL,
+        OBJECT,
+        LOCAL_OBJECT
+    }
+
+    public enum HdImageMigrationStatus {
+        NOT_MIGRATED,
+        PENDING,
+        MIGRATING,
+        MIGRATED,
+        FAILED,
+        SKIPPED
     }
 }

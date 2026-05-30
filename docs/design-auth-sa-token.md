@@ -852,6 +852,31 @@ sequenceDiagram
 | `POST /api/artworks/{id}/transaction-price/supplement` | `@SaCheckPermission("artwork:transaction-price:supplement")` |
 | `GET /api/artworks/export` | `@SaCheckPermission("artwork:export")` |
 
+### 11.3 ObjectStorageConfigController
+
+| 接口 | 权限注解 |
+|---|---|
+| `GET /api/settings/object-storage` | `@SaCheckPermission("settings:object-storage:view")` |
+| `POST /api/settings/object-storage` | `@SaCheckPermission("settings:object-storage:manage")` |
+| `PUT /api/settings/object-storage/{id}` | `@SaCheckPermission("settings:object-storage:manage")` |
+| `POST /api/settings/object-storage/{id}/test` | `@SaCheckPermission("settings:object-storage:manage")` |
+| `POST /api/settings/object-storage/{id}/enable` | `@SaCheckPermission("settings:object-storage:manage")` |
+| `POST /api/settings/object-storage/{id}/disable` | `@SaCheckPermission("settings:object-storage:manage")` |
+
+### 11.4 HdImageMigrationController
+
+| 接口 | 权限注解 |
+|---|---|
+| `GET /api/hd-image-migrations` | `@SaCheckPermission("hd-image:migration:view")` |
+| `POST /api/hd-image-migrations` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `GET /api/hd-image-migrations/{id}` | `@SaCheckPermission("hd-image:migration:view")` |
+| `POST /api/hd-image-migrations/{id}/start` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `POST /api/hd-image-migrations/{id}/pause` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `POST /api/hd-image-migrations/{id}/resume` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `POST /api/hd-image-migrations/{id}/cancel` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `POST /api/hd-image-migrations/{id}/retry-failed` | `@SaCheckPermission("hd-image:migration:manage")` |
+| `GET /api/hd-image-migrations/{id}/items` | `@SaCheckPermission("hd-image:migration:view")` |
+
 ## 12. 评估模块权限设计
 
 评估模块尚未实现，但鉴权设计需要预留。
@@ -962,6 +987,10 @@ void requireRejectReviewAccess(Long reviewId, Long auditorId);
 | `artwork:image:redownload` | 重新下载图片 | ARTWORK | API | 重新下载原图或高清图 |
 | `artwork:transaction-price:supplement` | 补充成交价 | ARTWORK | API | 单件补充成交价 |
 | `artwork:export` | 导出艺术品 | ARTWORK | API | 导出 Excel |
+| `settings:object-storage:view` | 查看对象存储配置 | SETTINGS | API | 查看火山 TOS 对象存储配置 |
+| `settings:object-storage:manage` | 管理对象存储配置 | SETTINGS | API | 创建、编辑、启用、禁用和测试火山 TOS 配置 |
+| `hd-image:migration:view` | 查看高清图迁移 | ARTWORK | API | 查看高清大图对象存储迁移任务和明细 |
+| `hd-image:migration:manage` | 管理高清图迁移 | ARTWORK | API | 创建、启动、暂停、取消和重试高清大图迁移任务 |
 | `evaluation-metric:view` | 查看评估指标 | EVALUATION | API | 查看指标库 |
 | `evaluation-metric:create` | 创建评估指标 | EVALUATION | API | 新建指标定义 |
 | `evaluation-metric:update` | 编辑评估指标 | EVALUATION | API | 编辑指标定义 |

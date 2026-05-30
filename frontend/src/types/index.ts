@@ -1,4 +1,4 @@
-export type TaskType = 'SEARCH' | 'SEARCH_BATCH' | 'ORIGINAL_IMAGE' | 'HD_IMAGE' | 'TRANSACTION_PRICE';
+export type TaskType = 'SEARCH' | 'SEARCH_BATCH' | 'ORIGINAL_IMAGE' | 'HD_IMAGE' | 'TRANSACTION_PRICE' | 'DESCRIPTION';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface Task {
@@ -63,7 +63,93 @@ export interface Artwork {
   hdImageStatus?: 'MISSING' | 'DOWNLOADED' | 'FAILED';
   hdImageAvailable: boolean;
   hdImageLastError?: string;
+  hdImageStorageType?: 'LOCAL' | 'OBJECT' | 'LOCAL_OBJECT';
+  hdImageMigrationStatus?: 'NOT_MIGRATED' | 'PENDING' | 'MIGRATING' | 'MIGRATED' | 'FAILED' | 'SKIPPED';
+  hdImageMigrationLastError?: string;
   sourceUrl?: string;
+  createdAt: string;
+}
+
+export interface ObjectStorageConfig {
+  id: number;
+  name: string;
+  provider: 'VOLCENGINE_TOS';
+  endpoint: string;
+  region: string;
+  bucket: string;
+  pathPrefix?: string;
+  accessKey?: string;
+  secretKey?: string;
+  accessKeyMasked: string;
+  secretConfigured: boolean;
+  publicBaseUrl?: string;
+  sdkMode: 'VOLCENGINE_TOS_SDK';
+  networkType: 'PUBLIC' | 'INTERNAL';
+  enabled: boolean;
+  uploadEnabled: boolean;
+  migrateEnabled: boolean;
+  lastTestStatus?: 'SUCCESS' | 'FAILED';
+  lastTestMessage?: string;
+  lastTestAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ObjectStorageConfigPayload {
+  name: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  pathPrefix?: string;
+  accessKey: string;
+  secretKey?: string;
+  publicBaseUrl?: string;
+  networkType: 'PUBLIC' | 'INTERNAL';
+  uploadEnabled: boolean;
+  migrateEnabled: boolean;
+}
+
+export type HdImageMigrationMode = 'FULL' | 'INCREMENTAL' | 'RETRY_FAILED';
+export type HdImageMigrationScopeType = 'ALL' | 'SEARCH_TASK';
+export type HdImageMigrationStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type HdImageMigrationItemStatus = 'PENDING' | 'UPLOADING' | 'MIGRATED' | 'SKIPPED' | 'FAILED';
+
+export interface HdImageMigrationTask {
+  id: number;
+  name: string;
+  configId: number;
+  mode: HdImageMigrationMode;
+  scopeType: HdImageMigrationScopeType;
+  targetTaskId?: number;
+  status: HdImageMigrationStatus;
+  totalCount: number;
+  processedCount: number;
+  successCount: number;
+  skippedCount: number;
+  failedCount: number;
+  progressPercent: number;
+  currentArtworkId?: number;
+  uploadConcurrency: number;
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface HdImageMigrationItem {
+  id: number;
+  migrationTaskId: number;
+  artworkId: number;
+  localPath?: string;
+  objectKey?: string;
+  status: HdImageMigrationItemStatus;
+  fileSize?: number;
+  uploadedSize?: number;
+  etag?: string;
+  errorMessage?: string;
+  attemptCount: number;
+  startedAt?: string;
+  completedAt?: string;
   createdAt: string;
 }
 

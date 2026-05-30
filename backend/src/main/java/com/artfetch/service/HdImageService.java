@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -57,6 +58,7 @@ public class HdImageService {
     private final SearchTaskRepository taskRepository;
     private final AppProperties appProperties;
     private final ArtronRequestSupport artronRequestSupport;
+    private final HdImageObjectStorageService objectStorageService;
     private ExecutorService tileExecutor;
 
     @PostConstruct
@@ -191,6 +193,28 @@ public class HdImageService {
     public Resource loadHdImage(Long artworkId) {
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
+        Artwork.HdImageStorageType storageType = artwork.getHdImageStorageType() == null
+                ? Artwork.HdImageStorageType.LOCAL
+                : artwork.getHdImageStorageType();
+        if ((storageType == Artwork.HdImageStorageType.OBJECT || storageType == Artwork.HdImageStorageType.LOCAL_OBJECT)
+                && artwork.getHdImageObjectKey() != null
+                && !artwork.getHdImageObjectKey().isBlank()) {
+            try {
+                Long configId = artwork.getHdImageObjectConfigId();
+                if (configId == null) {
+                    throw new IllegalStateException("高清图缺少对象存储配置 ID");
+                }
+                var config = objectStorageService.loadConfig(configId);
+                var object = objectStorageService.loadObject(config, artwork.getHdImageObjectKey());
+                return new InputStreamResource(object.inputStream());
+            } catch (Exception e) {
+                if (storageType == Artwork.HdImageStorageType.OBJECT) {
+                    throw new IllegalStateException("火山 TOS 高清图读取失败: " + e.getMessage(), e);
+                }
+                log.warn("火山 TOS 高清图读取失败，尝试回退本地文件: artworkId={}, message={}", artworkId, e.getMessage());
+            }
+        }
+
         if (artwork.getHdImagePath() == null || artwork.getHdImagePath().isBlank()) {
             throw new IllegalStateException("超清无损图尚未下载，请先创建并运行补充任务");
         }
@@ -307,12 +331,14 @@ public class HdImageService {
 
             stage = "save-db";
             long dbSaveStart = System.nanoTime();
+            ObjectUploadMetadata objectUpload = uploadToObjectStorageIfNeeded(artwork, targetPath, relativePath);
             artwork.setHdImagePath(relativePath);
             artwork.setHdImageContentType(MediaType.IMAGE_PNG_VALUE);
             artwork.setHdImageSize(outputBytes);
             artwork.setHdImageDownloadedAt(LocalDateTime.now());
             artwork.setHdImageStatus(Artwork.HdImageStatus.DOWNLOADED);
             artwork.setHdImageLastError(null);
+            applyObjectUpload(artwork, objectUpload);
             artworkRepository.save(artwork);
             dbSaveMs = nanosToMillis(System.nanoTime() - dbSaveStart);
 
@@ -446,6 +472,72 @@ public class HdImageService {
                 token
         );
         return new HdImageOption(token, width, height, sessionCookieHeader);
+    }
+
+    private ObjectUploadMetadata uploadToObjectStorageIfNeeded(Artwork artwork, Path targetPath, String relativePath) throws Exception {
+        AppProperties.HdStorageMode mode = appProperties.getImage().getHdStorageMode();
+        if (mode == null || mode == AppProperties.HdStorageMode.LOCAL_ONLY) {
+            return ObjectUploadMetadata.localOnly();
+        }
+        try {
+            var config = objectStorageService.activeConfigForUpload();
+            String objectKey = objectStorageService.buildObjectKey(config, artwork);
+            HdImageObjectStorageService.UploadResult result = objectStorageService.uploadFile(config, targetPath, objectKey);
+            if (mode == AppProperties.HdStorageMode.OBJECT_ONLY) {
+                try {
+                    Files.deleteIfExists(targetPath);
+                } catch (IOException e) {
+                    log.warn("对象存储模式下删除本地高清图失败: artworkId={}, path={}, message={}",
+                            artwork.getId(), relativePath, e.getMessage());
+                }
+            }
+            return new ObjectUploadMetadata(
+                    mode == AppProperties.HdStorageMode.OBJECT_ONLY
+                            ? Artwork.HdImageStorageType.OBJECT
+                            : Artwork.HdImageStorageType.LOCAL_OBJECT,
+                    config.getId(),
+                    config.getBucket(),
+                    result.objectKey(),
+                    result.etag(),
+                    result.size(),
+                    null
+            );
+        } catch (Exception e) {
+            if (mode == AppProperties.HdStorageMode.OBJECT_ONLY) {
+                throw e;
+            }
+            log.warn("高清图本地保存成功，但上传火山 TOS 失败: artworkId={}, message={}", artwork.getId(), e.getMessage(), e);
+            return new ObjectUploadMetadata(
+                    Artwork.HdImageStorageType.LOCAL,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    e.getMessage()
+            );
+        }
+    }
+
+    private void applyObjectUpload(Artwork artwork, ObjectUploadMetadata metadata) {
+        artwork.setHdImageStorageType(metadata.storageType());
+        if (metadata.objectKey() != null && !metadata.objectKey().isBlank()) {
+            artwork.setHdImageObjectConfigId(metadata.configId());
+            artwork.setHdImageObjectBucket(metadata.bucket());
+            artwork.setHdImageObjectKey(metadata.objectKey());
+            artwork.setHdImageObjectEtag(metadata.etag());
+            artwork.setHdImageObjectSize(metadata.size());
+            artwork.setHdImageObjectUploadedAt(LocalDateTime.now());
+            artwork.setHdImageMigrationStatus(Artwork.HdImageMigrationStatus.MIGRATED);
+            artwork.setHdImageMigrationLastError(null);
+            artwork.setHdImageMigrationUpdatedAt(LocalDateTime.now());
+        } else if (metadata.errorMessage() != null) {
+            artwork.setHdImageMigrationStatus(Artwork.HdImageMigrationStatus.FAILED);
+            artwork.setHdImageMigrationLastError(metadata.errorMessage());
+            artwork.setHdImageMigrationUpdatedAt(LocalDateTime.now());
+        } else if (artwork.getHdImageMigrationStatus() == null) {
+            artwork.setHdImageMigrationStatus(Artwork.HdImageMigrationStatus.NOT_MIGRATED);
+        }
     }
 
     private StitchResult stitchTiles(String artCode, String viewerUrl, HdImageOption option) throws IOException {
@@ -1252,6 +1344,18 @@ public class HdImageService {
     }
 
     private record HdImageOption(String token, int width, int height, String sessionCookieHeader) {
+    }
+
+    private record ObjectUploadMetadata(Artwork.HdImageStorageType storageType,
+                                        Long configId,
+                                        String bucket,
+                                        String objectKey,
+                                        String etag,
+                                        Long size,
+                                        String errorMessage) {
+        static ObjectUploadMetadata localOnly() {
+            return new ObjectUploadMetadata(Artwork.HdImageStorageType.LOCAL, null, null, null, null, null, null);
+        }
     }
 
     private static class HdImageStitchException extends IOException {

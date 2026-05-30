@@ -17,6 +17,11 @@ public final class PermissionCodes {
     public static final String ARTWORK_TRANSACTION_PRICE_SUPPLEMENT = "artwork:transaction-price:supplement";
     public static final String ARTWORK_EXPORT = "artwork:export";
 
+    public static final String SETTINGS_OBJECT_STORAGE_VIEW = "settings:object-storage:view";
+    public static final String SETTINGS_OBJECT_STORAGE_MANAGE = "settings:object-storage:manage";
+    public static final String HD_IMAGE_MIGRATION_VIEW = "hd-image:migration:view";
+    public static final String HD_IMAGE_MIGRATION_MANAGE = "hd-image:migration:manage";
+
     public static final String EVALUATION_METRIC_VIEW = "evaluation-metric:view";
     public static final String EVALUATION_METRIC_CREATE = "evaluation-metric:create";
     public static final String EVALUATION_METRIC_UPDATE = "evaluation-metric:update";

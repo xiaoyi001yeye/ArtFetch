@@ -21,7 +21,7 @@ public class ExportService {
     private final ArtworkRepository artworkRepository;
 
     private static final String[] HEADERS = {
-            "ID", "拍品名称", "编号", "艺术家", "材质", "形制", "尺寸", "估价", "成交价",
+            "ID", "拍品名称", "编号", "艺术家", "材质", "形制", "尺寸", "拍品描述", "估价", "成交价",
             "拍卖公司", "拍卖会", "拍卖专场", "拍卖日期", "拍卖地点",
             "预展时间", "预展地点", "来源URL", "图片URL", "抓取时间"
     };
@@ -29,6 +29,10 @@ public class ExportService {
     public byte[] exportToExcel(Long taskId, String keyword, String artist,
                                 String auctionDate, String lotNumber,
                                 String hdImageSyncStatus) throws IOException {
+        if (!hasFilter(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus)) {
+            throw new IllegalArgumentException("请至少选择一个筛选条件后再导出");
+        }
+
         List<Artwork> artworks = artworkRepository.findAll(
                 ArtworkSpec.search(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus));
 
@@ -77,18 +81,19 @@ public class ExportService {
                 setCellValue(row, 4, art.getMedium());
                 setCellValue(row, 5, art.getFormat());
                 setCellValue(row, 6, art.getDimensions());
-                setCellValue(row, 7, art.getValuation());
-                setCellValue(row, 8, art.getTransactionPrice());
-                setCellValue(row, 9, art.getAuctionHouse());
-                setCellValue(row, 10, art.getAuctionName());
-                setCellValue(row, 11, art.getAuctionSession());
-                setCellValue(row, 12, art.getAuctionDate());
-                setCellValue(row, 13, art.getAuctionLocation());
-                setCellValue(row, 14, art.getPreviewTime());
-                setCellValue(row, 15, art.getPreviewLocation());
-                setCellValue(row, 16, art.getSourceUrl());
-                setCellValue(row, 17, art.getImageUrl());
-                setCellValue(row, 18, art.getCreatedAt() != null ? art.getCreatedAt().format(formatter) : "");
+                setCellValue(row, 7, art.getDescription());
+                setCellValue(row, 8, art.getValuation());
+                setCellValue(row, 9, art.getTransactionPrice());
+                setCellValue(row, 10, art.getAuctionHouse());
+                setCellValue(row, 11, art.getAuctionName());
+                setCellValue(row, 12, art.getAuctionSession());
+                setCellValue(row, 13, art.getAuctionDate());
+                setCellValue(row, 14, art.getAuctionLocation());
+                setCellValue(row, 15, art.getPreviewTime());
+                setCellValue(row, 16, art.getPreviewLocation());
+                setCellValue(row, 17, art.getSourceUrl());
+                setCellValue(row, 18, art.getImageUrl());
+                setCellValue(row, 19, art.getCreatedAt() != null ? art.getCreatedAt().format(formatter) : "");
             }
 
             // 自动列宽
@@ -108,6 +113,20 @@ public class ExportService {
             workbook.write(out);
             return out.toByteArray();
         }
+    }
+
+    private boolean hasFilter(Long taskId, String keyword, String artist, String auctionDate,
+                              String lotNumber, String hdImageSyncStatus) {
+        return taskId != null
+                || hasText(keyword)
+                || hasText(artist)
+                || hasText(auctionDate)
+                || hasText(lotNumber)
+                || hasText(hdImageSyncStatus);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private void setCellValue(Row row, int col, String value) {

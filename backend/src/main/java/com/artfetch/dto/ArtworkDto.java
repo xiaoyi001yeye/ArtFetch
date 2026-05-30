@@ -27,6 +27,9 @@ public class ArtworkDto {
     private String hdImageStatus;
     private boolean hdImageAvailable;
     private String hdImageLastError;
+    private String hdImageStorageType;
+    private String hdImageMigrationStatus;
+    private String hdImageMigrationLastError;
     private String sourceUrl;
     private String valuation;
     private String transactionPrice;
@@ -63,8 +66,16 @@ public class ArtworkDto {
         dto.setHdImageStatus(artwork.getHdImageStatus() == null
                 ? Artwork.HdImageStatus.MISSING.name()
                 : artwork.getHdImageStatus().name());
-        dto.setHdImageAvailable(artwork.getHdImagePath() != null && !artwork.getHdImagePath().isBlank());
+        dto.setHdImageAvailable((artwork.getHdImagePath() != null && !artwork.getHdImagePath().isBlank())
+                || (artwork.getHdImageObjectKey() != null && !artwork.getHdImageObjectKey().isBlank()));
         dto.setHdImageLastError(artwork.getHdImageLastError());
+        dto.setHdImageStorageType(artwork.getHdImageStorageType() == null
+                ? Artwork.HdImageStorageType.LOCAL.name()
+                : artwork.getHdImageStorageType().name());
+        dto.setHdImageMigrationStatus(artwork.getHdImageMigrationStatus() == null
+                ? Artwork.HdImageMigrationStatus.NOT_MIGRATED.name()
+                : artwork.getHdImageMigrationStatus().name());
+        dto.setHdImageMigrationLastError(artwork.getHdImageMigrationLastError());
         dto.setSourceUrl(artwork.getSourceUrl());
         dto.setValuation(artwork.getValuation());
         dto.setTransactionPrice(artwork.getTransactionPrice());

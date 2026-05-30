@@ -45,7 +45,20 @@ artfetch:
     batch-size: 25
     artwork-concurrency: 4
     fetch-concurrency: 96
+    hd-storage-mode: ${ARTFETCH_IMAGE_HD_STORAGE_MODE:LOCAL_ONLY}
+    migration:
+      max-concurrent-tasks: 1
+      upload-concurrency: 4
+      batch-size: 100
+      fail-fast-threshold: 50
+      delete-local-after-migrated: false
+  object-storage:
+    encryption-key: ${ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY:change-me-object-storage-key}
   price:
+    fetch-timeout-ms: 30000
+    batch-size: 96
+    fetch-concurrency: 96
+  description:
     fetch-timeout-ms: 30000
     batch-size: 96
     fetch-concurrency: 96

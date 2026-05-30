@@ -270,16 +270,18 @@ export default function ArtworkDetailPage() {
               </Descriptions.Item>
             </Descriptions>
 
-            {artwork.description && (
-              <Card title="描述" size="small" style={{ marginTop: 16 }}>
+            <Card title="拍品描述" size="small" style={{ marginTop: 16 }}>
+              {artwork.description?.trim() ? (
                 <Typography.Paragraph
                   ellipsis={{ rows: 6, expandable: true, symbol: '展开' }}
-                  style={{ margin: 0 }}
+                  style={{ margin: 0, whiteSpace: 'pre-wrap' }}
                 >
                   {artwork.description}
                 </Typography.Paragraph>
-              </Card>
-            )}
+              ) : (
+                <Typography.Text type="secondary">暂无拍品描述</Typography.Text>
+              )}
+            </Card>
           </Col>
         </Row>
       </Card>

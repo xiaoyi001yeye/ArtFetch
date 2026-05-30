@@ -10,7 +10,9 @@ public class AppProperties {
     private Source source = new Source();
     private Task task = new Task();
     private Image image = new Image();
+    private ObjectStorage objectStorage = new ObjectStorage();
     private Price price = new Price();
+    private Description description = new Description();
     private Auth auth = new Auth();
 
     @Data
@@ -43,6 +45,30 @@ public class AppProperties {
         private int artworkConcurrency = 4;
         /** 超清大图瓦片下载并发数 */
         private int fetchConcurrency = 96;
+        /** 新下载高清图写入方式 */
+        private HdStorageMode hdStorageMode = HdStorageMode.LOCAL_ONLY;
+        private Migration migration = new Migration();
+    }
+
+    public enum HdStorageMode {
+        LOCAL_ONLY,
+        OBJECT_ONLY,
+        LOCAL_AND_OBJECT
+    }
+
+    @Data
+    public static class Migration {
+        private int maxConcurrentTasks = 1;
+        private int uploadConcurrency = 4;
+        private int batchSize = 100;
+        private int failFastThreshold = 50;
+        private boolean deleteLocalAfterMigrated = false;
+    }
+
+    @Data
+    public static class ObjectStorage {
+        /** 用于加密对象存储 Secret Key 的服务端密钥 */
+        private String encryptionKey = "change-me-object-storage-key";
     }
 
     @Data
@@ -52,6 +78,16 @@ public class AppProperties {
         /** 单任务内成交价详情页抓取并发数 */
         private int fetchConcurrency = 96;
         /** 抓取详情页补充成交价时的超时时间 */
+        private int fetchTimeoutMs = 30_000;
+    }
+
+    @Data
+    public static class Description {
+        /** 拍品描述补充任务按多少条为一批更新进度 */
+        private int batchSize = 96;
+        /** 单任务内拍品描述详情页抓取并发数 */
+        private int fetchConcurrency = 96;
+        /** 抓取详情页补充拍品描述时的超时时间 */
         private int fetchTimeoutMs = 30_000;
     }
 

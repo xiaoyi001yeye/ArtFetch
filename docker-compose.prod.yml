@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: artfetch-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-artfetch}
+      POSTGRES_USER: ${POSTGRES_USER:-artfetch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: Asia/Shanghai
+    ports:
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${ARTFETCH_BACKEND_IMAGE:?ARTFETCH_BACKEND_IMAGE is required}
+    container_name: artfetch-backend
+    ports:
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-artfetch}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-artfetch}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
+      ARTFETCH_SOURCE_BASE_URL: ${ARTWORK_SOURCE_URL:-https://artso.artron.net/auction/search_auction.php}
+      ARTFETCH_SOURCE_REQUEST_DELAY_MS: ${REQUEST_DELAY_MS:-300}
+      ARTFETCH_AUTH_ARTRON_COOKIE: ${ARTFETCH_AUTH_ARTRON_COOKIE:-}
+      ARTFETCH_AUTH_ARTRON_ACCOUNT: ${ARTFETCH_AUTH_ARTRON_ACCOUNT:-}
+      ARTFETCH_AUTH_ARTRON_PASSWORD: ${ARTFETCH_AUTH_ARTRON_PASSWORD:-}
+      ARTFETCH_ADMIN_USERNAME: ${ARTFETCH_ADMIN_USERNAME:-admin}
+      ARTFETCH_ADMIN_PASSWORD: ${ARTFETCH_ADMIN_PASSWORD:?ARTFETCH_ADMIN_PASSWORD is required}
+      ARTFETCH_IMAGE_STORAGE_PATH: /app/storage/original-images
+      ARTFETCH_IMAGE_HD_STORAGE_MODE: ${ARTFETCH_IMAGE_HD_STORAGE_MODE:-LOCAL_ONLY}
+      ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY: ${ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY:?ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY is required}
+      LOG_PATH: /app/logs
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./storage/original-images:/app/storage/original-images
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: ${ARTFETCH_FRONTEND_IMAGE:?ARTFETCH_FRONTEND_IMAGE is required}
+    container_name: artfetch-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

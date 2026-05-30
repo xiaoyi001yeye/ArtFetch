@@ -18,6 +18,13 @@ import type {
   ExpertReviewForm,
   MetricConfig,
   LoginResponse,
+  HdImageMigrationItem,
+  HdImageMigrationItemStatus,
+  HdImageMigrationTask,
+  HdImageMigrationMode,
+  HdImageMigrationScopeType,
+  ObjectStorageConfig,
+  ObjectStorageConfigPayload,
   PageResult,
   Task,
   TaskType,
@@ -108,6 +115,62 @@ export const listPermissions = () =>
 
 export const listAuditLogs = (query: { username?: string; action?: string; success?: boolean; page?: number; size?: number }) =>
   api.get<PageResult<AuditLog>>('/audit-logs', { params: query }).then((r) => r.data);
+
+// Object storage settings
+export const listObjectStorageConfigs = () =>
+  api.get<ObjectStorageConfig[]>('/settings/object-storage').then((r) => r.data);
+
+export const getObjectStorageConfigForEdit = (id: number) =>
+  api.get<ObjectStorageConfig>(`/settings/object-storage/${id}/edit`).then((r) => r.data);
+
+export const createObjectStorageConfig = (data: ObjectStorageConfigPayload) =>
+  api.post<ObjectStorageConfig>('/settings/object-storage', data).then((r) => r.data);
+
+export const updateObjectStorageConfig = (id: number, data: ObjectStorageConfigPayload) =>
+  api.put<ObjectStorageConfig>(`/settings/object-storage/${id}`, data).then((r) => r.data);
+
+export const testObjectStorageConfig = (id: number) =>
+  api.post<{ success: boolean; message: string }>(`/settings/object-storage/${id}/test`).then((r) => r.data);
+
+export const enableObjectStorageConfig = (id: number) =>
+  api.post<ObjectStorageConfig>(`/settings/object-storage/${id}/enable`).then((r) => r.data);
+
+export const disableObjectStorageConfig = (id: number) =>
+  api.post<ObjectStorageConfig>(`/settings/object-storage/${id}/disable`).then((r) => r.data);
+
+// HD image migrations
+export const listHdImageMigrations = (page = 0, size = 20) =>
+  api.get<PageResult<HdImageMigrationTask>>('/hd-image-migrations', { params: { page, size } }).then((r) => r.data);
+
+export const createHdImageMigration = (data: {
+  name: string
+  configId: number
+  mode: HdImageMigrationMode
+  scopeType: HdImageMigrationScopeType
+  targetTaskId?: number
+  uploadConcurrency?: number
+}) => api.post<HdImageMigrationTask>('/hd-image-migrations', data).then((r) => r.data);
+
+export const getHdImageMigration = (id: number) =>
+  api.get<HdImageMigrationTask>(`/hd-image-migrations/${id}`).then((r) => r.data);
+
+export const startHdImageMigration = (id: number) =>
+  api.post<HdImageMigrationTask>(`/hd-image-migrations/${id}/start`).then((r) => r.data);
+
+export const pauseHdImageMigration = (id: number) =>
+  api.post<HdImageMigrationTask>(`/hd-image-migrations/${id}/pause`).then((r) => r.data);
+
+export const resumeHdImageMigration = (id: number) =>
+  api.post<HdImageMigrationTask>(`/hd-image-migrations/${id}/resume`).then((r) => r.data);
+
+export const cancelHdImageMigration = (id: number) =>
+  api.post<HdImageMigrationTask>(`/hd-image-migrations/${id}/cancel`).then((r) => r.data);
+
+export const retryFailedHdImageMigration = (id: number) =>
+  api.post<HdImageMigrationTask>(`/hd-image-migrations/${id}/retry-failed`).then((r) => r.data);
+
+export const listHdImageMigrationItems = (id: number, query: { status?: HdImageMigrationItemStatus; page?: number; size?: number }) =>
+  api.get<PageResult<HdImageMigrationItem>>(`/hd-image-migrations/${id}/items`, { params: query }).then((r) => r.data);
 
 // Evaluation metrics / templates
 export const listEvaluationMetrics = (page = 0, size = 100, keyword?: string) =>

@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react'
 import { Button, Dropdown, Form, Input, Layout, Menu, message, Modal, Space, Typography } from 'antd'
 import {
   AuditOutlined,
+  CloudServerOutlined,
   FileDoneOutlined,
   FileSearchOutlined,
   LogoutOutlined,
   ProfileOutlined,
   SafetyCertificateOutlined,
+  SwapOutlined,
   SnippetsOutlined,
   TeamOutlined,
   UnorderedListOutlined,
@@ -28,6 +30,8 @@ import MyEvaluationsPage from './pages/evaluation/MyEvaluationsPage'
 import ExpertReviewPage from './pages/evaluation/ExpertReviewPage'
 import EvaluationMetricsPage from './pages/evaluation/EvaluationMetricsPage'
 import EvaluationTemplatesPage from './pages/evaluation/EvaluationTemplatesPage'
+import HdImageMigrationsPage from './pages/HdImageMigrationsPage'
+import ObjectStorageSettingsPage from './pages/settings/ObjectStorageSettingsPage'
 import ArtFetchMark from './components/ArtFetchMark'
 import { RequireAuth } from './auth/RequireAuth'
 import { useAuth } from './auth/AuthContext'
@@ -52,6 +56,11 @@ export default function App() {
       key: 'artworks',
       icon: <UnorderedListOutlined />,
       label: <Link to="/artworks">艺术品数据</Link>,
+    },
+    hasPermission(permissions.hdImageMigrationView) && {
+      key: 'hd-image-migrations',
+      icon: <SwapOutlined />,
+      label: <Link to="/hd-image-migrations">高清图迁移</Link>,
     },
     hasPermission(permissions.evaluationView) && {
       key: 'evaluations',
@@ -88,11 +97,17 @@ export default function App() {
       icon: <AuditOutlined />,
       label: <Link to="/audit-logs">审计日志</Link>,
     },
+    hasPermission(permissions.objectStorageView) && {
+      key: 'object-storage',
+      icon: <CloudServerOutlined />,
+      label: <Link to="/settings/object-storage">对象存储</Link>,
+    },
   ].filter(Boolean) as any[], [hasPermission])
 
   const defaultPath = useMemo(() => {
     if (hasPermission(permissions.taskView)) return '/tasks'
     if (hasPermission(permissions.artworkView)) return '/artworks'
+    if (hasPermission(permissions.hdImageMigrationView)) return '/hd-image-migrations'
     if (hasPermission(permissions.evaluationView)) return '/evaluations'
     if (hasPermission(permissions.evaluationReviewAssignedView)) return '/my-evaluations'
     if (hasPermission(permissions.evaluationMetricView)) return '/evaluation-metrics'
@@ -100,11 +115,14 @@ export default function App() {
     if (hasPermission(permissions.userView)) return '/users'
     if (hasPermission(permissions.roleView)) return '/roles'
     if (hasPermission(permissions.auditLogView)) return '/audit-logs'
+    if (hasPermission(permissions.objectStorageView)) return '/settings/object-storage'
     return '/login'
   }, [hasPermission])
 
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith('/artworks')) return 'artworks'
+    if (location.pathname.startsWith('/hd-image-migrations')) return 'hd-image-migrations'
+    if (location.pathname.startsWith('/settings/object-storage')) return 'object-storage'
     if (location.pathname.startsWith('/my-evaluations')) return 'my-evaluations'
     if (location.pathname.startsWith('/evaluation-metrics')) return 'evaluation-metrics'
     if (location.pathname.startsWith('/evaluation-metric-templates')) return 'evaluation-templates'
@@ -181,6 +199,7 @@ export default function App() {
           <Route path="/tasks" element={<RequireAuth permissions={[permissions.taskView]}><TasksPage /></RequireAuth>} />
           <Route path="/artworks" element={<RequireAuth permissions={[permissions.artworkView]}><ArtworksPage /></RequireAuth>} />
           <Route path="/artworks/:id" element={<RequireAuth permissions={[permissions.artworkView]}><ArtworkDetailPage /></RequireAuth>} />
+          <Route path="/hd-image-migrations" element={<RequireAuth permissions={[permissions.hdImageMigrationView]}><HdImageMigrationsPage /></RequireAuth>} />
           <Route path="/evaluations" element={<RequireAuth permissions={[permissions.evaluationView]}><EvaluationsPage /></RequireAuth>} />
           <Route path="/evaluations/new" element={<RequireAuth permissions={[permissions.evaluationCreate]}><EvaluationEditorPage /></RequireAuth>} />
           <Route path="/evaluations/:id" element={<RequireAuth><EvaluationDetailPage /></RequireAuth>} />
@@ -193,6 +212,7 @@ export default function App() {
           <Route path="/users" element={<RequireAuth permissions={[permissions.userView]}><UsersPage /></RequireAuth>} />
           <Route path="/roles" element={<RequireAuth permissions={[permissions.roleView]}><RolesPage /></RequireAuth>} />
           <Route path="/audit-logs" element={<RequireAuth permissions={[permissions.auditLogView]}><AuditLogsPage /></RequireAuth>} />
+          <Route path="/settings/object-storage" element={<RequireAuth permissions={[permissions.objectStorageView]}><ObjectStorageSettingsPage /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Content>

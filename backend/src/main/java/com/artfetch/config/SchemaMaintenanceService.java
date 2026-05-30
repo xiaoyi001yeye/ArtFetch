@@ -46,6 +46,8 @@ public class SchemaMaintenanceService {
                 Arrays.stream(EvaluationProjectStatus.values()).map(Enum::name).toList());
 
         alignHistoricalTimestamps();
+        ensureArtworkDescriptionSchema();
+        ensureObjectStorageSchema();
 
         int removedDuplicates = jdbcTemplate.update("""
                 delete from artworks a
@@ -72,6 +74,57 @@ public class SchemaMaintenanceService {
                 .map(Enum::name)
                 .map(value -> "'" + value + "'")
                 .collect(Collectors.joining(", "));
+    }
+
+    private void ensureArtworkDescriptionSchema() {
+        jdbcTemplate.execute("alter table artworks add column if not exists description text");
+    }
+
+    private void ensureObjectStorageSchema() {
+        jdbcTemplate.execute("""
+                create table if not exists object_storage_configs (
+                    id bigserial primary key,
+                    name varchar(100) not null,
+                    provider varchar(50) not null,
+                    endpoint text not null,
+                    region varchar(100),
+                    bucket varchar(255) not null,
+                    path_prefix varchar(500),
+                    access_key text not null,
+                    secret_key_encrypted text not null,
+                    public_base_url text,
+                    sdk_mode varchar(30) not null default 'VOLCENGINE_TOS_SDK',
+                    network_type varchar(30) not null default 'PUBLIC',
+                    enabled boolean not null default false,
+                    upload_enabled boolean not null default false,
+                    migrate_enabled boolean not null default false,
+                    last_test_status varchar(30),
+                    last_test_message text,
+                    last_test_at timestamp,
+                    created_by bigint,
+                    updated_by bigint,
+                    created_at timestamp not null default now(),
+                    updated_at timestamp
+                )
+                """);
+        jdbcTemplate.execute("""
+                create unique index if not exists uk_object_storage_configs_active
+                on object_storage_configs (enabled)
+                where enabled = true
+                """);
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_storage_type varchar(30) not null default 'LOCAL'");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_config_id bigint");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_bucket varchar(255)");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_key text");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_etag varchar(255)");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_size bigint");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_object_uploaded_at timestamp");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_migration_status varchar(30) not null default 'NOT_MIGRATED'");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_migration_last_error text");
+        jdbcTemplate.execute("alter table artworks add column if not exists hd_image_migration_updated_at timestamp");
+        jdbcTemplate.execute("create index if not exists idx_artworks_hd_storage_type on artworks (hd_image_storage_type)");
+        jdbcTemplate.execute("create index if not exists idx_artworks_hd_migration_status on artworks (hd_image_migration_status)");
+        jdbcTemplate.execute("create index if not exists idx_artworks_hd_object_key on artworks (hd_image_object_key)");
     }
 
     private void ensureMaintenanceFlagsTable() {

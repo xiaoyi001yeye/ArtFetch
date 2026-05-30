@@ -35,6 +35,7 @@ public class TaskService {
     private final OriginalImageService originalImageService;
     private final HdImageService hdImageService;
     private final TransactionPriceService transactionPriceService;
+    private final DescriptionService descriptionService;
     private final AppProperties appProperties;
     private final ExecutorService taskExecutor;
 
@@ -48,6 +49,7 @@ public class TaskService {
                        OriginalImageService originalImageService,
                        HdImageService hdImageService,
                        TransactionPriceService transactionPriceService,
+                       DescriptionService descriptionService,
                        AppProperties appProperties,
                        ExecutorService taskExecutor) {
         this.taskRepository = taskRepository;
@@ -57,6 +59,7 @@ public class TaskService {
         this.originalImageService = originalImageService;
         this.hdImageService = hdImageService;
         this.transactionPriceService = transactionPriceService;
+        this.descriptionService = descriptionService;
         this.appProperties = appProperties;
         this.taskExecutor = taskExecutor;
     }
@@ -285,6 +288,10 @@ public class TaskService {
                     } else if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
                         TransactionPriceTaskResult result = transactionPriceService.runTask(task);
                         markTaskCompleted(taskId, buildTransactionPriceSummary(result));
+                        break;
+                    } else if (taskType == SearchTask.TaskType.DESCRIPTION) {
+                        DescriptionTaskResult result = descriptionService.runTask(task);
+                        markTaskCompleted(taskId, buildDescriptionSummary(result));
                         break;
                     } else if (taskType == SearchTask.TaskType.SEARCH_BATCH) {
                         runBatchSearchTask(taskId);
@@ -585,6 +592,12 @@ public class TaskService {
             long remainingBatches = (long) Math.ceil((double) remainingItems / batchSize);
             return remainingBatches * task.getLastPageDurationMs();
         }
+        if (task.getTaskType() == SearchTask.TaskType.DESCRIPTION) {
+            int batchSize = Math.max(1,
+                    Math.max(appProperties.getDescription().getBatchSize(), appProperties.getDescription().getFetchConcurrency()));
+            long remainingBatches = (long) Math.ceil((double) remainingItems / batchSize);
+            return remainingBatches * task.getLastPageDurationMs();
+        }
         if (task.getTaskType() == SearchTask.TaskType.ORIGINAL_IMAGE
                 || task.getTaskType() == SearchTask.TaskType.HD_IMAGE) {
             int batchSize = Math.max(1,
@@ -686,13 +699,18 @@ public class TaskService {
             SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
             return targetTask.getName() + " 成交价补充";
         }
+        if (taskType == SearchTask.TaskType.DESCRIPTION) {
+            SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
+            return targetTask.getName() + " 拍品描述补充";
+        }
         throw new IllegalArgumentException("任务名称不能为空");
     }
 
     private String resolveKeyword(CreateTaskRequest request, SearchTask.TaskType taskType) {
         if (taskType == SearchTask.TaskType.ORIGINAL_IMAGE
                 || taskType == SearchTask.TaskType.HD_IMAGE
-                || taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+                || taskType == SearchTask.TaskType.TRANSACTION_PRICE
+                || taskType == SearchTask.TaskType.DESCRIPTION) {
             return requireTargetSearchTask(request.getTargetTaskId()).getKeyword();
         }
         return resolveSearchKeywords(request).get(0);
@@ -701,7 +719,8 @@ public class TaskService {
     private Long resolveTargetTaskId(CreateTaskRequest request, SearchTask.TaskType taskType) {
         if (taskType != SearchTask.TaskType.ORIGINAL_IMAGE
                 && taskType != SearchTask.TaskType.HD_IMAGE
-                && taskType != SearchTask.TaskType.TRANSACTION_PRICE) {
+                && taskType != SearchTask.TaskType.TRANSACTION_PRICE
+                && taskType != SearchTask.TaskType.DESCRIPTION) {
             return null;
         }
         return requireTargetSearchTask(request.getTargetTaskId()).getId();
@@ -744,6 +763,21 @@ public class TaskService {
         }
         if (result.getMissingCount() > 0) {
             summary.append("，").append(result.getMissingCount()).append(" 条详情页未提供成交价");
+        }
+        return summary.toString();
+    }
+
+    private String buildDescriptionSummary(DescriptionTaskResult result) {
+        if (result.getFailedCount() == 0 && result.getMissingCount() == 0) {
+            return null;
+        }
+
+        StringBuilder summary = new StringBuilder("拍品描述补充已完成");
+        if (result.getFailedCount() > 0) {
+            summary.append("，").append(result.getFailedCount()).append(" 条请求失败");
+        }
+        if (result.getMissingCount() > 0) {
+            summary.append("，").append(result.getMissingCount()).append(" 条详情页未提供描述");
         }
         return summary.toString();
     }

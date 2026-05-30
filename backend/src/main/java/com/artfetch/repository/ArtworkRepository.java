@@ -44,6 +44,47 @@ public interface ArtworkRepository extends JpaRepository<Artwork, Long>,
                                                          @Param("downloadedStatus") Artwork.HdImageStatus downloadedStatus);
 
     @Query("""
+            select a from Artwork a
+            where a.hdImageStatus = com.artfetch.entity.Artwork$HdImageStatus.DOWNLOADED
+              and a.hdImagePath is not null
+              and a.hdImagePath <> ''
+              and (:taskId is null or a.task.id = :taskId)
+            order by a.id asc
+            """)
+    List<Artwork> findAllDownloadedHdImages(@Param("taskId") Long taskId);
+
+    @Query("""
+            select a from Artwork a
+            where a.hdImageStatus = com.artfetch.entity.Artwork$HdImageStatus.DOWNLOADED
+              and a.hdImagePath is not null
+              and a.hdImagePath <> ''
+              and (:taskId is null or a.task.id = :taskId)
+              and (
+                a.hdImageMigrationStatus is null
+                or a.hdImageMigrationStatus in (
+                    com.artfetch.entity.Artwork$HdImageMigrationStatus.NOT_MIGRATED,
+                    com.artfetch.entity.Artwork$HdImageMigrationStatus.FAILED
+                )
+                or a.hdImageObjectKey is null
+                or a.hdImageObjectKey = ''
+                or a.hdImageStorageType = com.artfetch.entity.Artwork$HdImageStorageType.LOCAL
+              )
+            order by a.id asc
+            """)
+    List<Artwork> findIncrementalHdImagesForMigration(@Param("taskId") Long taskId);
+
+    @Query("""
+            select a from Artwork a
+            where a.hdImageStatus = com.artfetch.entity.Artwork$HdImageStatus.DOWNLOADED
+              and a.hdImagePath is not null
+              and a.hdImagePath <> ''
+              and (:taskId is null or a.task.id = :taskId)
+              and a.hdImageMigrationStatus = com.artfetch.entity.Artwork$HdImageMigrationStatus.FAILED
+            order by a.id asc
+            """)
+    List<Artwork> findFailedHdImagesForMigration(@Param("taskId") Long taskId);
+
+    @Query("""
             select count(a) from Artwork a
             where a.task.id = :taskId and (a.transactionPrice is null or a.transactionPrice = '')
             """)
@@ -62,6 +103,13 @@ public interface ArtworkRepository extends JpaRepository<Artwork, Long>,
             order by a.id asc
             """)
     List<Long> findMissingTransactionPriceIdsByTaskIdOrderByIdAsc(@Param("taskId") Long taskId);
+
+    @Query("""
+            select a.id from Artwork a
+            where a.task.id = :taskId and (a.description is null or a.description = '')
+            order by a.id asc
+            """)
+    List<Long> findMissingDescriptionIdsByTaskIdOrderByIdAsc(@Param("taskId") Long taskId);
 
     List<Artwork> findByIdInOrderByIdAsc(Collection<Long> ids);
 }

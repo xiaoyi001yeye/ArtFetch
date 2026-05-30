@@ -1,20 +1,18 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
     container_name: artfetch-postgres
     environment:
-      POSTGRES_DB: artfetch
-      POSTGRES_USER: artfetch
-      POSTGRES_PASSWORD: artfetch123
+      POSTGRES_DB: ${POSTGRES_DB:-artfetch}
+      POSTGRES_USER: ${POSTGRES_USER:-artfetch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       TZ: Asia/Shanghai
     ports:
-      - "5432:5432"
+      - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U artfetch -d artfetch"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,11 +23,11 @@ services:
       dockerfile: Dockerfile
     container_name: artfetch-backend
     ports:
-      - "8080:8080"
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/artfetch
-      SPRING_DATASOURCE_USERNAME: artfetch
-      SPRING_DATASOURCE_PASSWORD: artfetch123
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-artfetch}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-artfetch}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       TZ: Asia/Shanghai
       JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
       ARTFETCH_SOURCE_BASE_URL: ${ARTWORK_SOURCE_URL:-https://artso.artron.net/auction/search_auction.php}
@@ -37,7 +35,11 @@ services:
       ARTFETCH_AUTH_ARTRON_COOKIE: ${ARTFETCH_AUTH_ARTRON_COOKIE:-}
       ARTFETCH_AUTH_ARTRON_ACCOUNT: ${ARTFETCH_AUTH_ARTRON_ACCOUNT:-}
       ARTFETCH_AUTH_ARTRON_PASSWORD: ${ARTFETCH_AUTH_ARTRON_PASSWORD:-}
+      ARTFETCH_ADMIN_USERNAME: ${ARTFETCH_ADMIN_USERNAME:-admin}
+      ARTFETCH_ADMIN_PASSWORD: ${ARTFETCH_ADMIN_PASSWORD:?ARTFETCH_ADMIN_PASSWORD is required}
       ARTFETCH_IMAGE_STORAGE_PATH: /app/storage/original-images
+      ARTFETCH_IMAGE_HD_STORAGE_MODE: ${ARTFETCH_IMAGE_HD_STORAGE_MODE:-LOCAL_ONLY}
+      ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY: ${ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY:?ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY is required}
       LOG_PATH: /app/logs
     volumes:
       - ./backend/logs:/app/logs
@@ -53,12 +55,14 @@ services:
       dockerfile: Dockerfile
     container_name: artfetch-frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
     restart: unless-stopped
 
   jupyter:
+    profiles:
+      - tools
     build:
       context: ./ml
       dockerfile: Dockerfile
@@ -66,12 +70,12 @@ services:
     environment:
       ARTFETCH_DB_HOST: postgres
       ARTFETCH_DB_PORT: 5432
-      ARTFETCH_DB_NAME: artfetch
-      ARTFETCH_DB_USER: artfetch
-      ARTFETCH_DB_PASSWORD: artfetch123
+      ARTFETCH_DB_NAME: ${POSTGRES_DB:-artfetch}
+      ARTFETCH_DB_USER: ${POSTGRES_USER:-artfetch}
+      ARTFETCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       PYTHONPATH: /workspace/src
     ports:
-      - "8888:8888"
+      - "${JUPYTER_BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
     volumes:
       - ./ml:/workspace
     depends_on:

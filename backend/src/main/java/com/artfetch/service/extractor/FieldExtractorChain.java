@@ -21,6 +21,7 @@ public class FieldExtractorChain {
             new MediumExtractor(),
             new FormatExtractor(),
             new DimensionsExtractor(),
+            new DescriptionExtractor(),
             new ValuationExtractor(),
             new AuctionHouseExtractor(),
             new AuctionNameExtractor(),

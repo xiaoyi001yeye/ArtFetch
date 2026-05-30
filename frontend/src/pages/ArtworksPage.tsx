@@ -33,6 +33,16 @@ const buildSearchTaskLabel = (task: Task) =>
     ? `${task.parentTaskName} / ${task.keyword}`
     : task.name
 
+const hasExportFilter = (query: ArtworkQuery) =>
+  Boolean(
+    query.taskId
+    || query.keyword?.trim()
+    || query.artist?.trim()
+    || query.auctionDate?.trim()
+    || query.lotNumber?.trim()
+    || query.hdImageSyncStatus
+  )
+
 export default function ArtworksPage() {
   const { hasPermission } = useAuth()
   const [searchParams] = useSearchParams()
@@ -85,6 +95,11 @@ export default function ArtworksPage() {
   }
 
   const handleExport = async () => {
+    if (!hasExportFilter(query)) {
+      message.warning('请至少选择一个筛选条件后再导出')
+      return
+    }
+
     try {
       await api.downloadArtworksExport(query)
     } catch (e: any) {
@@ -196,6 +211,14 @@ export default function ArtworksPage() {
       render: (_, record) => renderTransactionPrice(record),
     },
     {
+      title: '拍品描述',
+      dataIndex: 'description',
+      width: 100,
+      render: (description?: string) => description?.trim()
+        ? <Tag color="green">有</Tag>
+        : <Tag>无</Tag>,
+    },
+    {
       title: '高清大图',
       width: 130,
       render: (_, record) => renderHdImageStatus(record),
@@ -290,7 +313,7 @@ export default function ArtworksPage() {
             showTotal: (t) => `共 ${t} 条记录`,
             showSizeChanger: false,
           }}
-          scroll={{ x: 1370 }}
+          scroll={{ x: 1470 }}
         />
       </Card>
     </div>

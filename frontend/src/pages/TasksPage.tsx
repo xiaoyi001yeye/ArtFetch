@@ -56,9 +56,10 @@ const TASK_TYPE_CONFIG: Record<TaskType, { color: string; label: string }> = {
   ORIGINAL_IMAGE: { color: 'gold', label: '补原图任务' },
   HD_IMAGE: { color: 'geekblue', label: '补超清图任务' },
   TRANSACTION_PRICE: { color: 'magenta', label: '补成交价任务' },
+  DESCRIPTION: { color: 'cyan', label: '补描述任务' },
 }
 
-const SUPPLEMENT_TASK_TYPES: TaskType[] = ['ORIGINAL_IMAGE', 'HD_IMAGE', 'TRANSACTION_PRICE']
+const SUPPLEMENT_TASK_TYPES: TaskType[] = ['ORIGINAL_IMAGE', 'HD_IMAGE', 'TRANSACTION_PRICE', 'DESCRIPTION']
 
 const parseBatchKeywords = (value?: string) =>
   (value || '')
@@ -296,7 +297,7 @@ export default function TasksPage() {
       width: 90,
       render: (_, record) => (
         <Typography.Text strong>
-          {record.taskType === 'ORIGINAL_IMAGE' || record.taskType === 'HD_IMAGE'
+          {record.taskType === 'ORIGINAL_IMAGE' || record.taskType === 'HD_IMAGE' || record.taskType === 'DESCRIPTION'
             ? record.totalFetched
             : record.artworkCount}
         </Typography.Text>
@@ -348,7 +349,9 @@ export default function TasksPage() {
               <Typography.Text type="secondary">
                 {record.taskType === 'TRANSACTION_PRICE'
                   ? `已补充 ${record.totalFetched || 0}`
-                  : `已下载 ${record.totalFetched || 0}`}
+                  : record.taskType === 'DESCRIPTION'
+                    ? `已补充 ${record.totalFetched || 0}`
+                    : `已下载 ${record.totalFetched || 0}`}
               </Typography.Text>
               <Typography.Text type="secondary">
                 并发 {record.detailFetchConcurrency || 1} / 吞吐 {formatRate(record.lastPageItemsPerMinute)}
@@ -520,6 +523,7 @@ export default function TasksPage() {
                 { value: 'ORIGINAL_IMAGE', label: '补充原始图片任务' },
                 { value: 'HD_IMAGE', label: '补充超清无损图任务' },
                 { value: 'TRANSACTION_PRICE', label: '补充成交价任务' },
+                { value: 'DESCRIPTION', label: '补充拍品描述任务' },
               ]}
             />
           </Form.Item>
@@ -534,7 +538,9 @@ export default function TasksPage() {
                       ? '例如：张大千超清无损图补充'
                       : selectedTaskType === 'TRANSACTION_PRICE'
                         ? '例如：张大千成交价补充'
-                        : '例如：印象派艺术品检索'
+                        : selectedTaskType === 'DESCRIPTION'
+                          ? '例如：张大千拍品描述补充'
+                          : '例如：印象派艺术品检索'
               }
             />
           </Form.Item>

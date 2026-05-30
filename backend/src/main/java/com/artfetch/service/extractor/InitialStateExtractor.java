@@ -3,6 +3,7 @@ package com.artfetch.service.extractor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
@@ -224,15 +225,17 @@ public class InitialStateExtractor implements FieldExtractor {
     private String extractDescription(JsonNode extraInfo) {
         JsonNode item = findByName(extraInfo, "description");
         if (item == null) {
-            item = findByLabel(extraInfo, "拍品描述");
+            item = findByLabel(extraInfo, "拍品描述", "作品描述", "描述", "款识", "题识", "说明");
         }
         if (item == null) {
             return null;
         }
-        return firstNonBlank(
+        return cleanDescription(firstNonBlank(
                 text(item, "fullText"),
-                text(item, "text")
-        );
+                text(item, "text"),
+                text(item, "value"),
+                text(item, "content")
+        ));
     }
 
     private String buildExtraData(JsonNode pageData, JsonNode detail) {
@@ -412,6 +415,20 @@ public class InitialStateExtractor implements FieldExtractor {
         }
 
         String cleaned = value.replaceAll("\\s*[（(].*$", "").trim();
+        return cleaned.isBlank() ? null : cleaned;
+    }
+
+    private String cleanDescription(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String cleaned = Jsoup.parseBodyFragment(value.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n"))
+                .text()
+                .replace('\u00A0', ' ')
+                .replaceAll("[ \\t\\x0B\\f\\r]+", " ")
+                .replaceAll("\\n\\s*\\n+", "\n")
+                .trim();
         return cleaned.isBlank() ? null : cleaned;
     }
 

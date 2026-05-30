@@ -1,11 +1,15 @@
 # Java
 backend/target/
+backend/\?/
 *.class
 *.jar
 
 # Node
 frontend/node_modules/
 frontend/dist/
+
+# Release artifacts
+/dist/
 
 # Env
 .env

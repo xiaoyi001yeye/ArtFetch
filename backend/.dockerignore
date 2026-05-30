@@ -1,0 +1,9 @@
+target
+logs
+.mvn/wrapper/maven-wrapper.jar
+.env
+.env.*
+*.log
+*.dump
+*.sql
+.DS_Store

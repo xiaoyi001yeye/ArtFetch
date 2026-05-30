@@ -103,6 +103,7 @@ public class SearchTask {
         SEARCH_BATCH,
         ORIGINAL_IMAGE,
         HD_IMAGE,
-        TRANSACTION_PRICE
+        TRANSACTION_PRICE,
+        DESCRIPTION
     }
 }
