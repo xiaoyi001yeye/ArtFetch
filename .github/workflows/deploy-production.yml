@@ -106,4 +106,4 @@ jobs:
             "$target:$project_dir/scripts/"
           # shellcheck disable=SC2029
           ssh "$target" \
-            "PROJECT_DIR='$project_dir' bash '$project_dir/scripts/artfetch-deploy-release.sh' '$VERSION' '/tmp/artfetch-deploy-${VERSION}.tgz'"
+            "PROJECT_DIR='$project_dir' BASE_URL='http://127.0.0.1:3000' bash '$project_dir/scripts/artfetch-deploy-release.sh' '$VERSION' '/tmp/artfetch-deploy-${VERSION}.tgz'"
