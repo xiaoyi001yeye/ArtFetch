@@ -321,10 +321,10 @@ for i in $(seq 1 60); do
 done
 
 echo "Checking frontend..."
-curl -fsSI "$BASE_URL" >/dev/null
+curl -fsSI --connect-timeout 5 --max-time 20 "$BASE_URL" >/dev/null
 
 echo "Checking API auth path..."
-API_CODE="$(curl -sS -o /tmp/artfetch-api-check-body -w '%{http_code}' "${BASE_URL}/api/auth/me" || true)"
+API_CODE="$(curl -sS --connect-timeout 5 --max-time 20 -o /tmp/artfetch-api-check-body -w '%{http_code}' "${BASE_URL}/api/auth/me" || true)"
 if [ "$API_CODE" != "401" ]; then
   echo "API auth check failed with HTTP $API_CODE; expected 401 for unauthenticated /api/auth/me."
   cat /tmp/artfetch-api-check-body || true
