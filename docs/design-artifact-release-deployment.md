@@ -1,5 +1,7 @@
 # ArtFetch 制品发布与服务器部署流程设计文档
 
+> 历史文档：当前 GitHub Actions 发布部署方案以 `docs/design-github-actions-release-deployment.md` 为准。该主方案已改为 GitHub Release 附件承载 Docker image tar，不再推送镜像到 GHCR。本文保留早期 registry 方案的背景资料，不作为当前实现依据。
+
 编写日期：2026-05-23
 
 ## 1. 背景

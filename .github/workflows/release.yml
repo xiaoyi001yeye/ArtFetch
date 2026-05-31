@@ -19,7 +19,6 @@ on:
 permissions:
   actions: read
   contents: write
-  packages: read
 
 jobs:
   release:
@@ -99,37 +98,37 @@ jobs:
           run-id: ${{ steps.release.outputs.packageRunId }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate candidate images
+      - name: Validate candidate image tarballs
         run: |
           python3 - <<'PY'
+          import hashlib
           import json
           from pathlib import Path
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
 
           manifest = json.loads(Path("artifact/release-manifest.json").read_text(encoding="utf-8"))
           if manifest.get("app") != "artfetch":
               raise SystemExit("Manifest app must be artfetch")
           for service in ("backend", "frontend"):
-              ref = manifest["images"][service]["ref"]
-              if "@sha256:" not in ref:
-                  raise SystemExit(f"{service} ref is not immutable: {ref}")
+              image = manifest["images"][service]
+              ref = image["ref"]
+              if not ref.startswith(f"artfetch-{service}:sha-"):
+                  raise SystemExit(f"{service} ref must be a local sha tag: {ref}")
+              tar_path = Path("artifact") / image["tar"]
+              if not tar_path.is_file():
+                  raise SystemExit(f"{service} image tar is missing: {tar_path}")
+              actual = sha256_file(tar_path)
+              expected = image["tarSha256"]
+              if actual != expected:
+                  raise SystemExit(f"{service} image tar sha mismatch: {actual} != {expected}")
           PY
-          while IFS= read -r ref; do
-            docker buildx imagetools inspect "$ref" >/dev/null
-          done < <(python3 - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path("artifact/release-manifest.json").read_text(encoding="utf-8"))
-          print(manifest["images"]["backend"]["ref"])
-          print(manifest["images"]["frontend"]["ref"])
-          PY
-          )
+          (cd artifact/images && sha256sum -c *.sha256)
 
       - name: Build release assets
         env:
@@ -158,7 +157,7 @@ jobs:
           printf '%s\n' "$RELEASE_NOTES" > dist/release-notes.md
           cat > dist/deployment-instructions.md <<EOF
           Deploy \`${VERSION}\` with the manually approved \`Deploy Production\` workflow.
-          The deployment consumes immutable image digests from \`release-manifest.json\`.
+          The deployment loads Docker image tarballs from \`artfetch-deploy-${VERSION}.tgz\`.
           EOF
 
       - name: Create GitHub Release

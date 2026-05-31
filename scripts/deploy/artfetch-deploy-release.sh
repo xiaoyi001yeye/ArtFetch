@@ -309,6 +309,10 @@ PY
 
 BACKEND_IMAGE="$(read_manifest images.backend.ref)"
 FRONTEND_IMAGE="$(read_manifest images.frontend.ref)"
+BACKEND_TAR="$(read_manifest images.backend.tar)"
+FRONTEND_TAR="$(read_manifest images.frontend.tar)"
+BACKEND_TAR_SHA="$(read_manifest images.backend.tarSha256)"
+FRONTEND_TAR_SHA="$(read_manifest images.frontend.tarSha256)"
 EXPECTED_COMPOSE_SHA="$(read_manifest compose.sha256)"
 GIT_SHA="$(read_manifest gitSha)"
 MANIFEST_VERSION="$(read_manifest version)"
@@ -322,10 +326,36 @@ if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
   echo "Manifest version mismatch. CLI=$VERSION manifest=$MANIFEST_VERSION"
   exit 1
 fi
-if ! printf '%s\n%s\n' "$BACKEND_IMAGE" "$FRONTEND_IMAGE" | grep -Eqv '^.+@sha256:[a-f0-9]{64}$'; then
-  :
-else
-  echo "Release images must use immutable sha256 digest references."
+
+if [ "$BACKEND_IMAGE" != "artfetch-backend:sha-${GIT_SHA}" ]; then
+  echo "Backend image tag does not match manifest gitSha: $BACKEND_IMAGE"
+  exit 1
+fi
+if [ "$FRONTEND_IMAGE" != "artfetch-frontend:sha-${GIT_SHA}" ]; then
+  echo "Frontend image tag does not match manifest gitSha: $FRONTEND_IMAGE"
+  exit 1
+fi
+for image_tar in "$BACKEND_TAR" "$FRONTEND_TAR"; do
+  case "$image_tar" in
+    images/*.tar.gz) ;;
+    *)
+      echo "Image tar path must be under images/ and end with .tar.gz: $image_tar"
+      exit 1
+      ;;
+  esac
+  if [ ! -f "$RELEASE_DIR/$image_tar" ]; then
+    echo "Image tar missing from release package: $image_tar"
+    exit 1
+  fi
+done
+ACTUAL_BACKEND_TAR_SHA="$(sha256sum "$RELEASE_DIR/$BACKEND_TAR" | awk '{print $1}')"
+ACTUAL_FRONTEND_TAR_SHA="$(sha256sum "$RELEASE_DIR/$FRONTEND_TAR" | awk '{print $1}')"
+if [ "$ACTUAL_BACKEND_TAR_SHA" != "$BACKEND_TAR_SHA" ]; then
+  echo "Backend image tar checksum mismatch."
+  exit 1
+fi
+if [ "$ACTUAL_FRONTEND_TAR_SHA" != "$FRONTEND_TAR_SHA" ]; then
+  echo "Frontend image tar checksum mismatch."
   exit 1
 fi
 ACTUAL_COMPOSE_SHA="$(sha256sum "$NEW_COMPOSE" | awk '{print $1}')"
@@ -338,6 +368,8 @@ log "Target version: $VERSION"
 log "Target git sha: $GIT_SHA"
 log "Backend image: $BACKEND_IMAGE"
 log "Frontend image: $FRONTEND_IMAGE"
+log "Backend image tar: $BACKEND_TAR"
+log "Frontend image tar: $FRONTEND_TAR"
 
 cp "$NEW_COMPOSE" "${COMPOSE_FILE}.candidate"
 cat > .env.release.candidate <<EOF
@@ -400,9 +432,11 @@ if [ -n "$RUNNING_SEARCH_TASKS" ] || [ -n "$RUNNING_HD_MIGRATIONS" ] || [ -n "$U
   exit 1
 fi
 
-log "Pulling release images before touching current app containers..."
-docker pull "$BACKEND_IMAGE"
-docker pull "$FRONTEND_IMAGE"
+log "Loading release images before touching current app containers..."
+docker load -i "$RELEASE_DIR/$BACKEND_TAR"
+docker load -i "$RELEASE_DIR/$FRONTEND_TAR"
+docker image inspect "$BACKEND_IMAGE" >/dev/null
+docker image inspect "$FRONTEND_IMAGE" >/dev/null
 
 log "Stopping frontend and backend for the maintenance window..."
 compose_current stop frontend backend || true

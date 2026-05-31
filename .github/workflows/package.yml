@@ -14,10 +14,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
 
 jobs:
   package:
@@ -31,20 +27,25 @@ jobs:
       - name: Resolve image names
         id: images
         run: |
-          owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          backend_image="${REGISTRY}/${owner}/artfetch-backend"
-          frontend_image="${REGISTRY}/${owner}/artfetch-frontend"
+          backend_image="artfetch-backend"
+          frontend_image="artfetch-frontend"
           git_sha="$(git rev-parse HEAD)"
           git_short_sha="$(git rev-parse --short HEAD)"
+          backend_tag="${backend_image}:sha-${git_sha}"
+          frontend_tag="${frontend_image}:sha-${git_sha}"
           {
             echo "BACKEND_IMAGE=${backend_image}"
             echo "FRONTEND_IMAGE=${frontend_image}"
+            echo "BACKEND_TAG=${backend_tag}"
+            echo "FRONTEND_TAG=${frontend_tag}"
             echo "GIT_SHA=${git_sha}"
             echo "GIT_SHORT_SHA=${git_short_sha}"
           } >> "$GITHUB_ENV"
           {
             echo "backend_image=${backend_image}"
             echo "frontend_image=${frontend_image}"
+            echo "backend_tag=${backend_tag}"
+            echo "frontend_tag=${frontend_tag}"
             echo "git_sha=${git_sha}"
           } >> "$GITHUB_OUTPUT"
 
@@ -75,21 +76,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build backend image
         id: backend
         uses: docker/build-push-action@v6
         with:
           context: backend
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.images.outputs.backend_image }}:sha-${{ steps.images.outputs.git_sha }}
+          push: false
+          load: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.images.outputs.backend_tag }}
           labels: |
             org.opencontainers.image.title=ArtFetch Backend
             org.opencontainers.image.revision=${{ steps.images.outputs.git_sha }}
@@ -99,17 +93,33 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: frontend
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.images.outputs.frontend_image }}:sha-${{ steps.images.outputs.git_sha }}
+          push: false
+          load: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.images.outputs.frontend_tag }}
           labels: |
             org.opencontainers.image.title=ArtFetch Frontend
             org.opencontainers.image.revision=${{ steps.images.outputs.git_sha }}
 
+      - name: Save image tarballs
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p artifact/images
+          docker save "$BACKEND_TAG" | gzip -c > "artifact/images/artfetch-backend-${GIT_SHA}.tar.gz"
+          docker save "$FRONTEND_TAG" | gzip -c > "artifact/images/artfetch-frontend-${GIT_SHA}.tar.gz"
+          (
+            cd artifact/images
+            sha256sum "artfetch-backend-${GIT_SHA}.tar.gz" > "artfetch-backend-${GIT_SHA}.tar.gz.sha256"
+            sha256sum "artfetch-frontend-${GIT_SHA}.tar.gz" > "artfetch-frontend-${GIT_SHA}.tar.gz.sha256"
+          )
+          {
+            echo "BACKEND_IMAGE_ID=$(docker image inspect "$BACKEND_TAG" --format '{{.Id}}')"
+            echo "FRONTEND_IMAGE_ID=$(docker image inspect "$FRONTEND_TAG" --format '{{.Id}}')"
+            echo "BACKEND_TAR_SHA256=$(sha256sum "artifact/images/artfetch-backend-${GIT_SHA}.tar.gz" | awk '{print $1}')"
+            echo "FRONTEND_TAR_SHA256=$(sha256sum "artifact/images/artfetch-frontend-${GIT_SHA}.tar.gz" | awk '{print $1}')"
+          } >> "$GITHUB_ENV"
+
       - name: Generate candidate manifest
         if: github.event_name != 'pull_request'
-        env:
-          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
-          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: |
           mkdir -p artifact/scripts
           cp docker-compose.prod.yml artifact/
@@ -130,14 +140,24 @@ jobs:
               "builtAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "images": {
                   "backend": {
-                      "tag": f'{os.environ["BACKEND_IMAGE"]}:sha-{sha}',
-                      "digest": os.environ["BACKEND_DIGEST"],
-                      "ref": f'{os.environ["BACKEND_IMAGE"]}@{os.environ["BACKEND_DIGEST"]}',
+                      "tag": os.environ["BACKEND_TAG"],
+                      "ref": os.environ["BACKEND_TAG"],
+                      "imageId": os.environ["BACKEND_IMAGE_ID"],
+                      "tar": f'images/artfetch-backend-{sha}.tar.gz',
+                      "tarSha256": os.environ["BACKEND_TAR_SHA256"],
                   },
                   "frontend": {
-                      "tag": f'{os.environ["FRONTEND_IMAGE"]}:sha-{sha}',
-                      "digest": os.environ["FRONTEND_DIGEST"],
-                      "ref": f'{os.environ["FRONTEND_IMAGE"]}@{os.environ["FRONTEND_DIGEST"]}',
+                      "tag": os.environ["FRONTEND_TAG"],
+                      "ref": os.environ["FRONTEND_TAG"],
+                      "imageId": os.environ["FRONTEND_IMAGE_ID"],
+                      "tar": f'images/artfetch-frontend-{sha}.tar.gz',
+                      "tarSha256": os.environ["FRONTEND_TAR_SHA256"],
+                  },
+              },
+              "externalImages": {
+                  "postgres": {
+                      "service": "postgres",
+                      "ref": "postgres:16-alpine",
                   },
               },
               "compose": {
@@ -148,6 +168,7 @@ jobs:
                   "backendTest": "passed",
                   "frontendBuild": "passed",
                   "imageBuild": "passed",
+                  "imageExport": "passed",
               },
           }
           Path("artifact/release-manifest.json").write_text(
