@@ -18,15 +18,12 @@
 
 ## 2. 推荐部署形态
 
-生产环境使用仓库现有 Docker Compose 方案，只启动核心服务：
+生产环境使用仓库现有 Docker Compose 方案，Compose 中定义的服务默认都启动：
 
 - `postgres`：PostgreSQL 16，保存业务数据。
 - `backend`：Spring Boot 后端，容器内监听 `8080`。
 - `frontend`：Nginx 托管 React 静态资源，并代理 `/api/` 到 `backend:8080`。
-
-默认不启动：
-
-- `jupyter`：仅用于本地或内网分析环境，生产默认不启动，避免暴露 `8888`。
+- `jupyter`：用于内网分析和成交价预测调试，生产随 Compose 默认启动，但 `8888` 默认只绑定到 `127.0.0.1`，避免公网暴露。
 
 首期访问入口：
 
@@ -251,7 +248,7 @@ vi .env
 
 ```bash
 cd /opt/artfetch
-docker compose up -d --build postgres backend frontend
+docker compose up -d --build postgres backend frontend jupyter
 docker compose ps
 ```
 
@@ -262,12 +259,7 @@ docker compose logs --tail=200 backend
 docker compose logs --tail=100 frontend
 ```
 
-不要在生产默认启动 Jupyter：
-
-```bash
-# 仅确实需要内网分析环境时才执行
-docker compose up -d --build jupyter
-```
+Jupyter 随 Compose 默认启动，但端口默认绑定到 `127.0.0.1`，不要改成公网绑定。
 
 ### 6.6 防火墙
 
@@ -642,7 +634,7 @@ du -sh storage/original-images backend/logs backups
 - 服务器 SSH 密码不要写入任何仓库文件。
 - 优先使用 SSH key，后续可关闭密码登录。
 - PostgreSQL `5432` 不对公网开放。
-- Jupyter `8888` 不在生产启动。
+- Jupyter `8888` 在生产默认启动，但只绑定 `127.0.0.1`，不对公网开放。
 - 后端 `8080` 只在调试期临时开放。
 - 长期对外访问建议绑定域名并配置 HTTPS。
 - 雅昌 Cookie 或账号密码只写服务器 `.env`。

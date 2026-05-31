@@ -89,7 +89,7 @@ diagnose_failure() {
     BACKEND_PORT \
     BACKEND_BIND_HOST \
     POSTGRES_BIND_HOST
-  print_env_presence .env.release ARTFETCH_BACKEND_IMAGE ARTFETCH_FRONTEND_IMAGE
+  print_env_presence .env.release ARTFETCH_BACKEND_IMAGE ARTFETCH_FRONTEND_IMAGE ARTFETCH_JUPYTER_IMAGE
 
   echo
   echo "release metadata:"
@@ -101,7 +101,7 @@ from pathlib import Path
 manifest = json.loads(Path("release-manifest.json").read_text(encoding="utf-8"))
 print("version=" + str(manifest.get("version")))
 print("gitSha=" + str(manifest.get("gitSha")))
-for service in ("backend", "frontend"):
+for service in ("backend", "frontend", "jupyter"):
     print(service + "=" + manifest["images"][service]["ref"])
 PY
   else
@@ -133,7 +133,7 @@ PY
   echo "artfetch containers:"
   docker ps -a --filter 'name=artfetch' \
     --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' || true
-  for container in artfetch-postgres artfetch-backend artfetch-frontend; do
+  for container in artfetch-postgres artfetch-backend artfetch-frontend artfetch-jupyter; do
     echo
     echo "inspect ${container}:"
     docker inspect "$container" \
@@ -159,7 +159,7 @@ PY
     log_compose_file="docker-compose.yml"
   fi
   if [ -n "$log_compose_file" ]; then
-    for service in postgres backend frontend; do
+    for service in postgres backend frontend jupyter; do
       echo
       echo "logs ${service}:"
       compose_for_file "$log_compose_file" logs --tail=200 "$service" || true
@@ -309,10 +309,13 @@ PY
 
 BACKEND_IMAGE="$(read_manifest images.backend.ref)"
 FRONTEND_IMAGE="$(read_manifest images.frontend.ref)"
+JUPYTER_IMAGE="$(read_manifest images.jupyter.ref)"
 BACKEND_TAR="$(read_manifest images.backend.tar)"
 FRONTEND_TAR="$(read_manifest images.frontend.tar)"
+JUPYTER_TAR="$(read_manifest images.jupyter.tar)"
 BACKEND_TAR_SHA="$(read_manifest images.backend.tarSha256)"
 FRONTEND_TAR_SHA="$(read_manifest images.frontend.tarSha256)"
+JUPYTER_TAR_SHA="$(read_manifest images.jupyter.tarSha256)"
 EXPECTED_COMPOSE_SHA="$(read_manifest compose.sha256)"
 GIT_SHA="$(read_manifest gitSha)"
 MANIFEST_VERSION="$(read_manifest version)"
@@ -335,7 +338,11 @@ if [ "$FRONTEND_IMAGE" != "artfetch-frontend:sha-${GIT_SHA}" ]; then
   echo "Frontend image tag does not match manifest gitSha: $FRONTEND_IMAGE"
   exit 1
 fi
-for image_tar in "$BACKEND_TAR" "$FRONTEND_TAR"; do
+if [ "$JUPYTER_IMAGE" != "artfetch-jupyter:sha-${GIT_SHA}" ]; then
+  echo "Jupyter image tag does not match manifest gitSha: $JUPYTER_IMAGE"
+  exit 1
+fi
+for image_tar in "$BACKEND_TAR" "$FRONTEND_TAR" "$JUPYTER_TAR"; do
   case "$image_tar" in
     images/*.tar.gz) ;;
     *)
@@ -350,12 +357,17 @@ for image_tar in "$BACKEND_TAR" "$FRONTEND_TAR"; do
 done
 ACTUAL_BACKEND_TAR_SHA="$(sha256sum "$RELEASE_DIR/$BACKEND_TAR" | awk '{print $1}')"
 ACTUAL_FRONTEND_TAR_SHA="$(sha256sum "$RELEASE_DIR/$FRONTEND_TAR" | awk '{print $1}')"
+ACTUAL_JUPYTER_TAR_SHA="$(sha256sum "$RELEASE_DIR/$JUPYTER_TAR" | awk '{print $1}')"
 if [ "$ACTUAL_BACKEND_TAR_SHA" != "$BACKEND_TAR_SHA" ]; then
   echo "Backend image tar checksum mismatch."
   exit 1
 fi
 if [ "$ACTUAL_FRONTEND_TAR_SHA" != "$FRONTEND_TAR_SHA" ]; then
   echo "Frontend image tar checksum mismatch."
+  exit 1
+fi
+if [ "$ACTUAL_JUPYTER_TAR_SHA" != "$JUPYTER_TAR_SHA" ]; then
+  echo "Jupyter image tar checksum mismatch."
   exit 1
 fi
 ACTUAL_COMPOSE_SHA="$(sha256sum "$NEW_COMPOSE" | awk '{print $1}')"
@@ -368,13 +380,16 @@ log "Target version: $VERSION"
 log "Target git sha: $GIT_SHA"
 log "Backend image: $BACKEND_IMAGE"
 log "Frontend image: $FRONTEND_IMAGE"
+log "Jupyter image: $JUPYTER_IMAGE"
 log "Backend image tar: $BACKEND_TAR"
 log "Frontend image tar: $FRONTEND_TAR"
+log "Jupyter image tar: $JUPYTER_TAR"
 
 cp "$NEW_COMPOSE" "${COMPOSE_FILE}.candidate"
 cat > .env.release.candidate <<EOF
 ARTFETCH_BACKEND_IMAGE=${BACKEND_IMAGE}
 ARTFETCH_FRONTEND_IMAGE=${FRONTEND_IMAGE}
+ARTFETCH_JUPYTER_IMAGE=${JUPYTER_IMAGE}
 EOF
 chmod 600 .env.release.candidate
 
@@ -435,11 +450,13 @@ fi
 log "Loading release images before touching current app containers..."
 docker load -i "$RELEASE_DIR/$BACKEND_TAR"
 docker load -i "$RELEASE_DIR/$FRONTEND_TAR"
+docker load -i "$RELEASE_DIR/$JUPYTER_TAR"
 docker image inspect "$BACKEND_IMAGE" >/dev/null
 docker image inspect "$FRONTEND_IMAGE" >/dev/null
+docker image inspect "$JUPYTER_IMAGE" >/dev/null
 
-log "Stopping frontend and backend for the maintenance window..."
-compose_current stop frontend backend || true
+log "Stopping frontend, backend, and jupyter for the maintenance window..."
+compose_current stop frontend backend jupyter || true
 
 log "Capturing deployment snapshot: $SNAPSHOT_DIR"
 mkdir -p "$SNAPSHOT_DIR"
@@ -451,7 +468,7 @@ cp "$CURRENT_COMPOSE_FILE" "$SNAPSHOT_DIR/compose.yml"
 [ ! -f .env.release ] || cp .env.release "$SNAPSHOT_DIR/.env.release"
 [ ! -f release-manifest.json ] || cp release-manifest.json "$SNAPSHOT_DIR/release-manifest.json"
 compose_current ps > "$SNAPSHOT_DIR/compose-ps.txt"
-docker inspect artfetch-backend artfetch-frontend > "$SNAPSHOT_DIR/app-container-inspect.json" 2>/dev/null || true
+docker inspect artfetch-backend artfetch-frontend artfetch-jupyter > "$SNAPSHOT_DIR/app-container-inspect.json" 2>/dev/null || true
 
 log "Backing up database..."
 compose_current exec -T postgres sh -lc \
@@ -470,15 +487,16 @@ printf '%s\n' "$COMPOSE_FILE" > active-compose-file
 chmod 600 .env.release
 rm -f "${COMPOSE_FILE}.candidate"
 
-log "Starting release backend and frontend..."
-compose_release up -d backend frontend
+log "Starting release backend, frontend, and jupyter..."
+compose_release up -d backend frontend jupyter
 
 log "Waiting for stable containers..."
 for _ in $(seq 1 60); do
   POSTGRES_STATUS="$(docker inspect artfetch-postgres --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' 2>/dev/null || true)"
   BACKEND_STATUS="$(docker inspect artfetch-backend --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
   FRONTEND_STATUS="$(docker inspect artfetch-frontend --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
-  if [ "$POSTGRES_STATUS" = "running healthy" ] && [ "$BACKEND_STATUS" = "running false" ] && [ "$FRONTEND_STATUS" = "running false" ]; then
+  JUPYTER_STATUS="$(docker inspect artfetch-jupyter --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
+  if [ "$POSTGRES_STATUS" = "running healthy" ] && [ "$BACKEND_STATUS" = "running false" ] && [ "$FRONTEND_STATUS" = "running false" ] && [ "$JUPYTER_STATUS" = "running false" ]; then
     break
   fi
   sleep 2
@@ -487,7 +505,8 @@ done
 POSTGRES_STATUS="$(docker inspect artfetch-postgres --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' 2>/dev/null || true)"
 BACKEND_STATUS="$(docker inspect artfetch-backend --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
 FRONTEND_STATUS="$(docker inspect artfetch-frontend --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
-if [ "$POSTGRES_STATUS" != "running healthy" ] || [ "$BACKEND_STATUS" != "running false" ] || [ "$FRONTEND_STATUS" != "running false" ]; then
+JUPYTER_STATUS="$(docker inspect artfetch-jupyter --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
+if [ "$POSTGRES_STATUS" != "running healthy" ] || [ "$BACKEND_STATUS" != "running false" ] || [ "$FRONTEND_STATUS" != "running false" ] || [ "$JUPYTER_STATUS" != "running false" ]; then
   echo "Containers did not become stable."
   compose_release ps
   exit 1
@@ -495,7 +514,8 @@ fi
 
 ACTUAL_BACKEND_IMAGE="$(docker inspect artfetch-backend --format '{{.Config.Image}}')"
 ACTUAL_FRONTEND_IMAGE="$(docker inspect artfetch-frontend --format '{{.Config.Image}}')"
-if [ "$ACTUAL_BACKEND_IMAGE" != "$BACKEND_IMAGE" ] || [ "$ACTUAL_FRONTEND_IMAGE" != "$FRONTEND_IMAGE" ]; then
+ACTUAL_JUPYTER_IMAGE="$(docker inspect artfetch-jupyter --format '{{.Config.Image}}')"
+if [ "$ACTUAL_BACKEND_IMAGE" != "$BACKEND_IMAGE" ] || [ "$ACTUAL_FRONTEND_IMAGE" != "$FRONTEND_IMAGE" ] || [ "$ACTUAL_JUPYTER_IMAGE" != "$JUPYTER_IMAGE" ]; then
   echo "Running image refs do not match the release manifest."
   exit 1
 fi
@@ -553,6 +573,7 @@ fi
   printf 'git=%s ' "$GIT_SHA"
   printf 'backend=%s ' "$BACKEND_IMAGE"
   printf 'frontend=%s ' "$FRONTEND_IMAGE"
+  printf 'jupyter=%s ' "$JUPYTER_IMAGE"
   printf 'backup=%s ' "$SNAPSHOT_DIR/artfetch.dump"
   printf 'status=auto-verified\n'
 } >> backups/deploy-history.log

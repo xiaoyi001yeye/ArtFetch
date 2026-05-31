@@ -132,11 +132,13 @@ GIT_SHA="$(git rev-parse HEAD)"
 GIT_SHORT_SHA="$(git rev-parse --short HEAD)"
 BACKEND_IMAGE="artfetch-backend:sha-${GIT_SHA}"
 FRONTEND_IMAGE="artfetch-frontend:sha-${GIT_SHA}"
+JUPYTER_IMAGE="artfetch-jupyter:sha-${GIT_SHA}"
 
 echo "Release package version: $VERSION"
 echo "Git SHA: $GIT_SHA"
 echo "Backend image tag: $BACKEND_IMAGE"
 echo "Frontend image tag: $FRONTEND_IMAGE"
+echo "Jupyter image tag: $JUPYTER_IMAGE"
 
 if [ "$SKIP_APP_BUILD" != "1" ]; then
   echo "Building frontend..."
@@ -168,6 +170,14 @@ docker build \
   -t "$FRONTEND_IMAGE" \
   frontend
 
+echo "Building Jupyter image locally..."
+docker build \
+  --label "org.opencontainers.image.title=ArtFetch Jupyter" \
+  --label "org.opencontainers.image.revision=${GIT_SHA}" \
+  --label "org.opencontainers.image.version=${VERSION}" \
+  -t "$JUPYTER_IMAGE" \
+  ml
+
 DIST_ROOT="dist"
 RELEASE_DIR="${DIST_ROOT}/artfetch-deploy-${VERSION}"
 rm -rf "$RELEASE_DIR"
@@ -175,20 +185,25 @@ mkdir -p "$RELEASE_DIR/scripts" "$RELEASE_DIR/images"
 
 BACKEND_TAR="images/artfetch-backend-${GIT_SHA}.tar.gz"
 FRONTEND_TAR="images/artfetch-frontend-${GIT_SHA}.tar.gz"
+JUPYTER_TAR="images/artfetch-jupyter-${GIT_SHA}.tar.gz"
 
 echo "Saving image tarballs..."
 docker save "$BACKEND_IMAGE" | gzip -c > "$RELEASE_DIR/$BACKEND_TAR"
 docker save "$FRONTEND_IMAGE" | gzip -c > "$RELEASE_DIR/$FRONTEND_TAR"
+docker save "$JUPYTER_IMAGE" | gzip -c > "$RELEASE_DIR/$JUPYTER_TAR"
 (
   cd "$RELEASE_DIR/images"
   sha256_file "artfetch-backend-${GIT_SHA}.tar.gz" > "artfetch-backend-${GIT_SHA}.tar.gz.sha256"
   sha256_file "artfetch-frontend-${GIT_SHA}.tar.gz" > "artfetch-frontend-${GIT_SHA}.tar.gz.sha256"
+  sha256_file "artfetch-jupyter-${GIT_SHA}.tar.gz" > "artfetch-jupyter-${GIT_SHA}.tar.gz.sha256"
 )
 
 BACKEND_IMAGE_ID="$(docker image inspect "$BACKEND_IMAGE" --format '{{.Id}}')"
 FRONTEND_IMAGE_ID="$(docker image inspect "$FRONTEND_IMAGE" --format '{{.Id}}')"
+JUPYTER_IMAGE_ID="$(docker image inspect "$JUPYTER_IMAGE" --format '{{.Id}}')"
 BACKEND_TAR_SHA256="$(sha256_value "$RELEASE_DIR/$BACKEND_TAR")"
 FRONTEND_TAR_SHA256="$(sha256_value "$RELEASE_DIR/$FRONTEND_TAR")"
+JUPYTER_TAR_SHA256="$(sha256_value "$RELEASE_DIR/$JUPYTER_TAR")"
 
 cp docker-compose.prod.yml "$RELEASE_DIR/docker-compose.prod.yml"
 cp .env.example "$RELEASE_DIR/.env.example"
@@ -222,6 +237,13 @@ manifest = {
             "imageId": "$FRONTEND_IMAGE_ID",
             "tar": "$FRONTEND_TAR",
             "tarSha256": "$FRONTEND_TAR_SHA256"
+        },
+        "jupyter": {
+            "tag": "$JUPYTER_IMAGE",
+            "ref": "$JUPYTER_IMAGE",
+            "imageId": "$JUPYTER_IMAGE_ID",
+            "tar": "$JUPYTER_TAR",
+            "tarSha256": "$JUPYTER_TAR_SHA256"
         }
     },
     "externalImages": {
@@ -259,6 +281,7 @@ echo
 echo "Image tarballs included:"
 echo "  $BACKEND_TAR"
 echo "  $FRONTEND_TAR"
+echo "  $JUPYTER_TAR"
 echo
 echo "Next steps:"
 echo "  Upload ${PACKAGE} and ${PACKAGE}.sha256 to a GitHub Release, or use the Release workflow."

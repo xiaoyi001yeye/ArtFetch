@@ -115,7 +115,7 @@ jobs:
           manifest = json.loads(Path("artifact/release-manifest.json").read_text(encoding="utf-8"))
           if manifest.get("app") != "artfetch":
               raise SystemExit("Manifest app must be artfetch")
-          for service in ("backend", "frontend"):
+          for service in ("backend", "frontend", "jupyter"):
               image = manifest["images"][service]
               ref = image["ref"]
               if not ref.startswith(f"artfetch-{service}:sha-"):

@@ -49,8 +49,10 @@ jobs:
           manifest = json.loads(Path("release-manifest.json").read_text())
           print("version=" + str(manifest.get("version")))
           print("gitSha=" + str(manifest.get("gitSha")))
-          for service in ("backend", "frontend"):
-              print(service + "=" + manifest["images"][service]["ref"])
+          for service in ("backend", "frontend", "jupyter"):
+              image = manifest.get("images", {}).get(service)
+              if image:
+                  print(service + "=" + image["ref"])
           PY
           echo
 
@@ -59,8 +61,11 @@ jobs:
           echo
 
           echo "== container health =="
-          docker inspect artfetch-postgres artfetch-backend artfetch-frontend \
-            --format '{{.Name}} status={{.State.Status}} restarting={{.State.Restarting}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} image={{.Config.Image}}'
+          for container in artfetch-postgres artfetch-backend artfetch-frontend artfetch-jupyter; do
+            docker inspect "$container" \
+              --format '{{.Name}} status={{.State.Status}} restarting={{.State.Restarting}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} image={{.Config.Image}}' \
+              2>/dev/null || echo "${container}: not found"
+          done
           echo
 
           echo "== local backend health =="

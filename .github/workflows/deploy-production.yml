@@ -82,6 +82,7 @@ jobs:
           print("gitSha=" + str(manifest.get("gitSha")))
           print("backend=" + manifest["images"]["backend"]["ref"])
           print("frontend=" + manifest["images"]["frontend"]["ref"])
+          print("jupyter=" + manifest["images"]["jupyter"]["ref"])
           print("composeSha256=" + manifest["compose"]["sha256"])
           PY
           echo "::endgroup::"
@@ -169,7 +170,7 @@ jobs:
           manifest = json.loads(Path("release-manifest.json").read_text(encoding="utf-8"))
           print("version=" + str(manifest.get("version")))
           print("gitSha=" + str(manifest.get("gitSha")))
-          for service in ("backend", "frontend"):
+          for service in ("backend", "frontend", "jupyter"):
               print(service + "=" + manifest["images"][service]["ref"])
           PY
           fi

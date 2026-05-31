@@ -37,7 +37,7 @@ PREVIOUS_COMPOSE_FILE="$(cat "$SNAPSHOT_DIR/active-compose-file")"
 echo "Rolling back app deployment only. Database will not be restored."
 
 if [ -f "$COMPOSE_FILE" ] && [ -f .env.release ]; then
-  docker compose --env-file .env --env-file .env.release -f "$COMPOSE_FILE" stop frontend backend || true
+  docker compose --env-file .env --env-file .env.release -f "$COMPOSE_FILE" stop frontend backend jupyter || true
 fi
 
 cp "$SNAPSHOT_DIR/.env" .env
@@ -62,7 +62,7 @@ else
   COMPOSE=(docker compose --env-file .env -f "$PREVIOUS_COMPOSE_FILE")
 fi
 
-"${COMPOSE[@]}" up -d backend frontend
+"${COMPOSE[@]}" up -d backend frontend jupyter
 "${COMPOSE[@]}" ps
 
 BACKEND_PORT="$("${COMPOSE[@]}" port backend 8080 | tail -n 1)"

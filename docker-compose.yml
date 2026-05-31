@@ -61,8 +61,6 @@ services:
     restart: unless-stopped
 
   jupyter:
-    profiles:
-      - tools
     build:
       context: ./ml
       dockerfile: Dockerfile
