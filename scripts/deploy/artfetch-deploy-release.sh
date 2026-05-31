@@ -14,14 +14,178 @@ BACKUP_READY=0
 DEPLOY_SUCCESS=0
 TMP_DIR=""
 
+log() {
+  printf '[%s] %s\n' "$(date '+%F %T %Z')" "$*"
+}
+
+begin_group() {
+  printf '::group::%s\n' "$*"
+}
+
+end_group() {
+  printf '::endgroup::\n'
+}
+
+print_env_presence() {
+  local file="$1"
+  shift
+  if [ ! -f "$file" ]; then
+    echo "$file: missing"
+    return
+  fi
+  local mode
+  mode="$(stat -c '%a' "$file" 2>/dev/null || echo unknown)"
+  echo "$file: present mode=$mode"
+  local key
+  for key in "$@"; do
+    if grep -Eq "^${key}=.+" "$file"; then
+      echo "env $key: set"
+    else
+      echo "env $key: missing_or_empty"
+    fi
+  done
+}
+
+compose_for_file() {
+  local file="$1"
+  shift
+  if [ -f .env.release ] && [ "$file" = "$COMPOSE_FILE" ]; then
+    docker compose --env-file .env --env-file .env.release -f "$file" "$@"
+  else
+    docker compose --env-file .env -f "$file" "$@"
+  fi
+}
+
+diagnose_failure() {
+  local code="$1"
+  set +e
+  begin_group "ArtFetch deployment failure diagnostics"
+  log "Deployment failed with exit code ${code}"
+  log "Version=${VERSION}"
+  log "Project dir=${PROJECT_DIR}"
+  log "Base URL=${BASE_URL}"
+
+  if [ -d "$PROJECT_DIR" ]; then
+    cd "$PROJECT_DIR" || true
+    echo "pwd=$(pwd)"
+    echo "directory listing:"
+    ls -la | sed -n '1,120p'
+    echo
+    echo "disk:"
+    df -h "$PROJECT_DIR" || true
+  else
+    echo "Project directory missing: $PROJECT_DIR"
+  fi
+
+  echo
+  echo "required environment variable presence:"
+  print_env_presence .env \
+    POSTGRES_DB \
+    POSTGRES_USER \
+    POSTGRES_PASSWORD \
+    ARTFETCH_ADMIN_PASSWORD \
+    ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY \
+    FRONTEND_PORT \
+    BACKEND_PORT \
+    BACKEND_BIND_HOST \
+    POSTGRES_BIND_HOST
+  print_env_presence .env.release ARTFETCH_BACKEND_IMAGE ARTFETCH_FRONTEND_IMAGE
+
+  echo
+  echo "release metadata:"
+  if [ -f release-manifest.json ]; then
+    python3 - <<'PY' || true
+import json
+from pathlib import Path
+
+manifest = json.loads(Path("release-manifest.json").read_text(encoding="utf-8"))
+print("version=" + str(manifest.get("version")))
+print("gitSha=" + str(manifest.get("gitSha")))
+for service in ("backend", "frontend"):
+    print(service + "=" + manifest["images"][service]["ref"])
+PY
+  else
+    echo "release-manifest.json: missing"
+  fi
+  [ ! -f active-compose-file ] || echo "active-compose-file=$(cat active-compose-file)"
+
+  echo
+  echo "docker versions:"
+  docker --version || true
+  docker compose version || true
+
+  echo
+  echo "compose ps:"
+  if [ -n "${CURRENT_COMPOSE_FILE:-}" ] && [ -f "${CURRENT_COMPOSE_FILE:-}" ]; then
+    echo "current compose file: $CURRENT_COMPOSE_FILE"
+    compose_for_file "$CURRENT_COMPOSE_FILE" ps || true
+  fi
+  if [ -f "$COMPOSE_FILE" ]; then
+    echo "release compose file: $COMPOSE_FILE"
+    compose_for_file "$COMPOSE_FILE" ps || true
+  fi
+  if [ -f docker-compose.yml ] && [ "${CURRENT_COMPOSE_FILE:-}" != "docker-compose.yml" ]; then
+    echo "default compose file: docker-compose.yml"
+    compose_for_file docker-compose.yml ps || true
+  fi
+
+  echo
+  echo "artfetch containers:"
+  docker ps -a --filter 'name=artfetch' \
+    --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}' || true
+  for container in artfetch-postgres artfetch-backend artfetch-frontend; do
+    echo
+    echo "inspect ${container}:"
+    docker inspect "$container" \
+      --format 'name={{.Name}} status={{.State.Status}} restarting={{.State.Restarting}} exitCode={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} image={{.Config.Image}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' \
+      2>/dev/null || echo "${container}: not found"
+  done
+
+  echo
+  echo "local HTTP probes:"
+  curl -vfsS --connect-timeout 5 --max-time 20 http://127.0.0.1:3000/ -o /tmp/artfetch-diagnostic-frontend-body 2>&1 | sed -n '1,120p' || true
+  curl -vfsS --connect-timeout 5 --max-time 20 http://127.0.0.1:8080/actuator/health -o /tmp/artfetch-diagnostic-health-body 2>&1 | sed -n '1,120p' || true
+  curl -sS --connect-timeout 5 --max-time 20 -o /tmp/artfetch-diagnostic-auth-body -w 'api_auth_http_code=%{http_code}\n' http://127.0.0.1:3000/api/auth/me || true
+  sed -n '1,40p' /tmp/artfetch-diagnostic-auth-body 2>/dev/null || true
+
+  echo
+  echo "recent compose logs:"
+  local log_compose_file=""
+  if [ -f "$COMPOSE_FILE" ]; then
+    log_compose_file="$COMPOSE_FILE"
+  elif [ -n "${CURRENT_COMPOSE_FILE:-}" ] && [ -f "${CURRENT_COMPOSE_FILE:-}" ]; then
+    log_compose_file="$CURRENT_COMPOSE_FILE"
+  elif [ -f docker-compose.yml ]; then
+    log_compose_file="docker-compose.yml"
+  fi
+  if [ -n "$log_compose_file" ]; then
+    for service in postgres backend frontend; do
+      echo
+      echo "logs ${service}:"
+      compose_for_file "$log_compose_file" logs --tail=200 "$service" || true
+    done
+  else
+    echo "No compose file available for logs."
+  fi
+
+  echo
+  echo "recent deploy history:"
+  tail -n 40 backups/deploy-history.log 2>/dev/null || true
+  end_group
+  set -e
+}
+
 on_exit() {
   local code="$?"
+  if [ "$code" != "0" ] && [ "$DEPLOY_SUCCESS" != "1" ]; then
+    diagnose_failure "$code"
+  fi
   if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
   fi
   rm -f "${PROJECT_DIR}/${COMPOSE_FILE}.candidate" "${PROJECT_DIR}/.env.release.candidate"
   if [ "$code" != "0" ] && [ "$DEPLOY_SUCCESS" != "1" ]; then
-    echo "Deployment failed with exit code ${code}."
+    log "Deployment failed with exit code ${code}."
   fi
   if [ "$code" != "0" ] && [ "$DEPLOY_SUCCESS" != "1" ] && [ "$BACKUP_READY" = "1" ]; then
     echo "Rollback snapshot: ${ROLLBACK_PREFIX}"
@@ -105,7 +269,7 @@ if [ ! -f .env ]; then
 fi
 chmod 600 .env
 
-echo "Checking required .env variables without printing values..."
+log "Checking required .env variables without printing values..."
 for key in POSTGRES_PASSWORD ARTFETCH_ADMIN_PASSWORD ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY; do
   if ! grep -Eq "^${key}=.+" .env; then
     echo "Missing required .env key: $key"
@@ -118,7 +282,7 @@ for key in POSTGRES_PASSWORD ARTFETCH_ADMIN_PASSWORD ARTFETCH_OBJECT_STORAGE_ENC
   fi
 done
 
-echo "Verifying package checksum..."
+log "Verifying package checksum..."
 (cd "$(dirname "$PACKAGE")" && sha256sum -c "$(basename "${PACKAGE}.sha256")")
 
 TMP_DIR="$(mktemp -d)"
@@ -170,10 +334,10 @@ if [ "$ACTUAL_COMPOSE_SHA" != "$EXPECTED_COMPOSE_SHA" ]; then
   exit 1
 fi
 
-echo "Target version: $VERSION"
-echo "Target git sha: $GIT_SHA"
-echo "Backend image: $BACKEND_IMAGE"
-echo "Frontend image: $FRONTEND_IMAGE"
+log "Target version: $VERSION"
+log "Target git sha: $GIT_SHA"
+log "Backend image: $BACKEND_IMAGE"
+log "Frontend image: $FRONTEND_IMAGE"
 
 cp "$NEW_COMPOSE" "${COMPOSE_FILE}.candidate"
 cat > .env.release.candidate <<EOF
@@ -182,7 +346,7 @@ ARTFETCH_FRONTEND_IMAGE=${FRONTEND_IMAGE}
 EOF
 chmod 600 .env.release.candidate
 
-echo "Validating release compose config..."
+log "Validating release compose config..."
 docker compose --env-file .env --env-file .env.release.candidate -f "${COMPOSE_FILE}.candidate" config >/dev/null
 
 if [ -f active-compose-file ] && [ -f "$(cat active-compose-file)" ]; then
@@ -196,10 +360,11 @@ else
   exit 1
 fi
 
-echo "Ensuring PostgreSQL is running for pre-deploy checks..."
+log "Using current compose file: $CURRENT_COMPOSE_FILE"
+log "Ensuring PostgreSQL is running for pre-deploy checks..."
 compose_current up -d postgres
 
-echo "Checking running tasks before restart..."
+log "Checking running tasks before restart..."
 RUNNING_SEARCH_TASKS="$(query_postgres "
 select id || '|' || coalesce(name, '') || '|' || coalesce(task_type, 'SEARCH')
 from search_tasks
@@ -235,14 +400,14 @@ if [ -n "$RUNNING_SEARCH_TASKS" ] || [ -n "$RUNNING_HD_MIGRATIONS" ] || [ -n "$U
   exit 1
 fi
 
-echo "Pulling release images before touching current app containers..."
+log "Pulling release images before touching current app containers..."
 docker pull "$BACKEND_IMAGE"
 docker pull "$FRONTEND_IMAGE"
 
-echo "Stopping frontend and backend for the maintenance window..."
+log "Stopping frontend and backend for the maintenance window..."
 compose_current stop frontend backend || true
 
-echo "Capturing deployment snapshot..."
+log "Capturing deployment snapshot: $SNAPSHOT_DIR"
 mkdir -p "$SNAPSHOT_DIR"
 chmod 700 "$SNAPSHOT_DIR"
 printf '%s\n' "$CURRENT_COMPOSE_FILE" > "$SNAPSHOT_DIR/active-compose-file"
@@ -254,13 +419,14 @@ cp "$CURRENT_COMPOSE_FILE" "$SNAPSHOT_DIR/compose.yml"
 compose_current ps > "$SNAPSHOT_DIR/compose-ps.txt"
 docker inspect artfetch-backend artfetch-frontend > "$SNAPSHOT_DIR/app-container-inspect.json" 2>/dev/null || true
 
-echo "Backing up database..."
+log "Backing up database..."
 compose_current exec -T postgres sh -lc \
   'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$SNAPSHOT_DIR/artfetch.dump"
 test -s "$SNAPSHOT_DIR/artfetch.dump"
+log "Database backup created: $SNAPSHOT_DIR/artfetch.dump ($(du -h "$SNAPSHOT_DIR/artfetch.dump" | awk '{print $1}'))"
 BACKUP_READY=1
 
-echo "Installing release files..."
+log "Installing release files..."
 mkdir -p "releases/artfetch-deploy-${VERSION}"
 cp -R "$RELEASE_DIR"/. "releases/artfetch-deploy-${VERSION}/"
 cp "$NEW_COMPOSE" "$COMPOSE_FILE"
@@ -270,10 +436,10 @@ printf '%s\n' "$COMPOSE_FILE" > active-compose-file
 chmod 600 .env.release
 rm -f "${COMPOSE_FILE}.candidate"
 
-echo "Starting release backend and frontend..."
+log "Starting release backend and frontend..."
 compose_release up -d backend frontend
 
-echo "Waiting for stable containers..."
+log "Waiting for stable containers..."
 for _ in $(seq 1 60); do
   POSTGRES_STATUS="$(docker inspect artfetch-postgres --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' 2>/dev/null || true)"
   BACKEND_STATUS="$(docker inspect artfetch-backend --format '{{.State.Status}} {{.State.Restarting}}' 2>/dev/null || true)"
@@ -307,7 +473,7 @@ if [ -z "$BACKEND_PORT" ]; then
   exit 1
 fi
 
-echo "Checking backend health..."
+log "Checking backend health at http://${BACKEND_PORT}/actuator/health"
 for i in $(seq 1 60); do
   if curl -fsS "http://${BACKEND_PORT}/actuator/health" | grep -q '"status":"UP"'; then
     break
@@ -320,10 +486,10 @@ for i in $(seq 1 60); do
   fi
 done
 
-echo "Checking frontend..."
-curl -fsSI --connect-timeout 5 --max-time 20 "$BASE_URL" >/dev/null
+log "Checking frontend at $BASE_URL"
+curl -vfsSI --connect-timeout 5 --max-time 20 "$BASE_URL" 2>&1 | sed -n '1,120p'
 
-echo "Checking API auth path..."
+log "Checking API auth path at ${BASE_URL}/api/auth/me"
 API_CODE="$(curl -sS --connect-timeout 5 --max-time 20 -o /tmp/artfetch-api-check-body -w '%{http_code}' "${BASE_URL}/api/auth/me" || true)"
 if [ "$API_CODE" != "401" ]; then
   echo "API auth check failed with HTTP $API_CODE; expected 401 for unauthenticated /api/auth/me."
@@ -331,7 +497,7 @@ if [ "$API_CODE" != "401" ]; then
   exit 1
 fi
 
-echo "Checking DESCRIPTION task type schema support..."
+log "Checking DESCRIPTION task type schema support..."
 TASK_TYPE_CONSTRAINT="$(compose_release exec -T postgres sh -lc \
   'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select pg_get_constraintdef(oid) from pg_constraint where conrelid = '\''search_tasks'\''::regclass and contype = '\''c'\'';"')"
 if ! printf '%s' "$TASK_TYPE_CONSTRAINT" | grep -q DESCRIPTION; then
@@ -339,7 +505,7 @@ if ! printf '%s' "$TASK_TYPE_CONSTRAINT" | grep -q DESCRIPTION; then
   exit 1
 fi
 
-echo "Checking recent backend errors..."
+log "Checking recent backend errors..."
 compose_release logs --since 3m --tail=200 backend | tee "/tmp/artfetch-backend-${VERSION}.log" >/dev/null
 if grep -E "ERROR|Exception|Failed to start" "/tmp/artfetch-backend-${VERSION}.log" >/dev/null; then
   echo "Backend logs contain ERROR/Exception. Review logs before marking deployment successful."
