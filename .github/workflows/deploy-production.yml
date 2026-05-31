@@ -51,6 +51,7 @@ jobs:
         run: |
           mkdir release
           gh release download "release/${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --pattern 'release-manifest.json' \
             --pattern "artfetch-deploy-${VERSION}.tgz" \
             --pattern "artfetch-deploy-${VERSION}.tgz.sha256" \
