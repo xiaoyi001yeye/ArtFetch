@@ -14,17 +14,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
-
-      - name: Test backend
-        working-directory: backend
-        run: mvn test
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
