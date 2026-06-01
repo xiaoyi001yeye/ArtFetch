@@ -3,21 +3,14 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      packageRunId:
-        description: Successful Package workflow run ID
-        required: true
       version:
-        description: Release version in YYYY.MM.DD.N format
+        description: Release version, for example V1.0.0
         required: true
       releaseNotes:
         description: Human-readable release notes
         required: true
-  push:
-    tags:
-      - "release/*"
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
@@ -29,82 +22,270 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve release inputs
+      - name: Resolve and validate release inputs
         id: release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_PACKAGE_RUN_ID: ${{ github.event.inputs.packageRunId || '' }}
-          INPUT_RELEASE_NOTES: ${{ github.event.inputs.releaseNotes || '' }}
-          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_RELEASE_NOTES: ${{ github.event.inputs.releaseNotes }}
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            package_run_id="${INPUT_PACKAGE_RUN_ID}"
-            version="${INPUT_VERSION}"
-            release_notes="${INPUT_RELEASE_NOTES}"
-          elif [ "${GITHUB_REF_TYPE}" = "tag" ] && printf '%s' "${GITHUB_REF_NAME}" | grep -Eq '^release/[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
-            version="${GITHUB_REF_NAME#release/}"
-            git_sha="$(git rev-parse HEAD)"
-            package_run_id="$(
-              gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/package.yml/runs?branch=main&event=push&status=completed&per_page=20" \
-                --jq ".workflow_runs[] | select(.head_sha == \"${git_sha}\" and .conclusion == \"success\") | .id" \
-                | head -n 1
-            )"
-            release_notes="Release ${version} from ${git_sha}."
-          else
-            echo "Release must be triggered manually or by a release/YYYY.MM.DD.N tag."
+          set -Eeuo pipefail
+          version="${INPUT_VERSION}"
+          if ! printf '%s' "$version" | grep -Eq '^V[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid version: ${version}. Expected Vx.y.z, for example V1.0.0."
             exit 1
           fi
 
-          if [ -z "${package_run_id}" ]; then
-            echo "Could not resolve a successful Package workflow run for this release."
+          latest_flyway="$(
+            find backend/src/main/resources/db/migration -maxdepth 1 -type f -name 'V*__*.sql' -printf '%f\n' \
+              | sed -E 's/^(V[0-9]+(\.[0-9]+)*)__.*$/\1/' \
+              | sort -V \
+              | tail -n 1
+          )"
+          if [ -z "$latest_flyway" ]; then
+            echo "No Flyway migration files found."
+            exit 1
+          fi
+          if [ "$latest_flyway" != "$version" ]; then
+            echo "Release version must match latest Flyway version. input=${version} latestFlyway=${latest_flyway}"
             exit 1
           fi
 
+          git_sha="$(git rev-parse HEAD)"
+          git_short_sha="$(git rev-parse --short HEAD)"
           {
-            echo "packageRunId=${package_run_id}"
             echo "version=${version}"
+            echo "flywayVersion=${latest_flyway}"
+            echo "gitSha=${git_sha}"
+            echo "gitShortSha=${git_short_sha}"
             echo "releaseNotes<<EOF"
-            printf '%s\n' "${release_notes}"
+            printf '%s\n' "${INPUT_RELEASE_NOTES}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Validate version
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Test backend
+        working-directory: backend
+        run: mvn test
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: |
+            artfetch-backend:${{ steps.release.outputs.version }}
+            artfetch-backend:sha-${{ steps.release.outputs.gitSha }}
+          labels: |
+            org.opencontainers.image.title=ArtFetch Backend
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.gitSha }}
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          load: true
+          tags: |
+            artfetch-frontend:${{ steps.release.outputs.version }}
+            artfetch-frontend:sha-${{ steps.release.outputs.gitSha }}
+          labels: |
+            org.opencontainers.image.title=ArtFetch Frontend
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.gitSha }}
+
+      - name: Build Jupyter image
+        uses: docker/build-push-action@v6
+        with:
+          context: ml
+          push: false
+          load: true
+          tags: |
+            artfetch-jupyter:${{ steps.release.outputs.version }}
+            artfetch-jupyter:sha-${{ steps.release.outputs.gitSha }}
+          labels: |
+            org.opencontainers.image.title=ArtFetch Jupyter
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.gitSha }}
+
+      - name: Pull external runtime images
+        run: docker pull postgres:16-alpine
+
+      - name: Build release package
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          FLYWAY_VERSION: ${{ steps.release.outputs.flywayVersion }}
+          GIT_SHA: ${{ steps.release.outputs.gitSha }}
+          GIT_SHORT_SHA: ${{ steps.release.outputs.gitShortSha }}
+          GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          dist_dir="dist"
+          release_dir="${dist_dir}/artfetch-deploy-${VERSION}"
+          rm -rf "$dist_dir"
+          mkdir -p "${release_dir}/images" "${release_dir}/scripts"
+
+          cp docker-compose.prod.yml "${release_dir}/docker-compose.prod.yml"
+          cp .env.example "${release_dir}/.env.example"
+          cp scripts/deploy/artfetch-install-or-upgrade.sh "${release_dir}/scripts/artfetch-install-or-upgrade.sh"
+          cp scripts/deploy/artfetch-clean-failed-install.sh "${release_dir}/scripts/artfetch-clean-failed-install.sh"
+          cp scripts/deploy/install-or-upgrade-latest.sh "${dist_dir}/install-or-upgrade-latest.sh"
+          sed -i "s#__GITHUB_REPOSITORY__#${GITHUB_REPOSITORY_NAME}#g" "${dist_dir}/install-or-upgrade-latest.sh"
+          chmod +x "${release_dir}/scripts/"*.sh "${dist_dir}/install-or-upgrade-latest.sh"
+
+          backend_version_tag="artfetch-backend:${VERSION}"
+          backend_sha_tag="artfetch-backend:sha-${GIT_SHA}"
+          frontend_version_tag="artfetch-frontend:${VERSION}"
+          frontend_sha_tag="artfetch-frontend:sha-${GIT_SHA}"
+          jupyter_version_tag="artfetch-jupyter:${VERSION}"
+          jupyter_sha_tag="artfetch-jupyter:sha-${GIT_SHA}"
+          postgres_ref="postgres:16-alpine"
+
+          docker save "$backend_version_tag" "$backend_sha_tag" | gzip -c > "${release_dir}/images/artfetch-backend-${VERSION}.tar.gz"
+          docker save "$frontend_version_tag" "$frontend_sha_tag" | gzip -c > "${release_dir}/images/artfetch-frontend-${VERSION}.tar.gz"
+          docker save "$jupyter_version_tag" "$jupyter_sha_tag" | gzip -c > "${release_dir}/images/artfetch-jupyter-${VERSION}.tar.gz"
+          docker save "$postgres_ref" | gzip -c > "${release_dir}/images/postgres-16-alpine.tar.gz"
+
+          (
+            cd "${release_dir}/images"
+            sha256sum artfetch-backend-${VERSION}.tar.gz > artfetch-backend-${VERSION}.tar.gz.sha256
+            sha256sum artfetch-frontend-${VERSION}.tar.gz > artfetch-frontend-${VERSION}.tar.gz.sha256
+            sha256sum artfetch-jupyter-${VERSION}.tar.gz > artfetch-jupyter-${VERSION}.tar.gz.sha256
+            sha256sum postgres-16-alpine.tar.gz > postgres-16-alpine.tar.gz.sha256
+          )
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          git_sha = os.environ["GIT_SHA"]
+          release_dir = Path("dist") / f"artfetch-deploy-{version}"
+
+          def sha256_file(path: Path) -> str:
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def image_id(ref: str) -> str:
+              import subprocess
+              return subprocess.check_output(
+                  ["docker", "image", "inspect", ref, "--format", "{{.Id}}"],
+                  text=True,
+              ).strip()
+
+          images = {
+              "backend": {
+                  "service": "backend",
+                  "versionTag": f"artfetch-backend:{version}",
+                  "shaTag": f"artfetch-backend:sha-{git_sha}",
+                  "imageId": image_id(f"artfetch-backend:{version}"),
+                  "tar": f"images/artfetch-backend-{version}.tar.gz",
+              },
+              "frontend": {
+                  "service": "frontend",
+                  "versionTag": f"artfetch-frontend:{version}",
+                  "shaTag": f"artfetch-frontend:sha-{git_sha}",
+                  "imageId": image_id(f"artfetch-frontend:{version}"),
+                  "tar": f"images/artfetch-frontend-{version}.tar.gz",
+              },
+              "jupyter": {
+                  "service": "jupyter",
+                  "versionTag": f"artfetch-jupyter:{version}",
+                  "shaTag": f"artfetch-jupyter:sha-{git_sha}",
+                  "imageId": image_id(f"artfetch-jupyter:{version}"),
+                  "tar": f"images/artfetch-jupyter-{version}.tar.gz",
+              },
+              "postgres": {
+                  "service": "postgres",
+                  "ref": "postgres:16-alpine",
+                  "imageId": image_id("postgres:16-alpine"),
+                  "tar": "images/postgres-16-alpine.tar.gz",
+              },
+          }
+          for image in images.values():
+              image["tarSha256"] = sha256_file(release_dir / image["tar"])
+
+          manifest = {
+              "app": "artfetch",
+              "version": version,
+              "gitSha": git_sha,
+              "gitShortSha": os.environ["GIT_SHORT_SHA"],
+              "builtAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "releasedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "flywayVersion": os.environ["FLYWAY_VERSION"],
+              "images": images,
+              "compose": {
+                  "file": "docker-compose.prod.yml",
+                  "sha256": sha256_file(release_dir / "docker-compose.prod.yml"),
+              },
+              "build": {
+                  "backendTest": "passed",
+                  "frontendBuild": "passed",
+                  "imageBuild": "passed",
+                  "imageExport": "passed",
+              },
+          }
+          (release_dir / "release-manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          Path("dist/release-manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          tar -C "$dist_dir" -czf "${dist_dir}/artfetch-deploy-${VERSION}.tgz" "artfetch-deploy-${VERSION}"
+          (
+            cd "$dist_dir"
+            sha256sum "artfetch-deploy-${VERSION}.tgz" > "artfetch-deploy-${VERSION}.tgz.sha256"
+          )
+
+      - name: Validate release package
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$'; then
-            echo "Invalid version: $VERSION"
-            exit 1
-          fi
-
-      - name: Validate Package run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ steps.release.outputs.packageRunId }}
-        run: |
-          conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .conclusion)"
-          workflow="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .name)"
-          if [ "$workflow" != "Package" ] || [ "$conclusion" != "success" ]; then
-            echo "Package run ${RUN_ID} is not a successful Package workflow run."
-            exit 1
-          fi
-
-      - name: Download candidate artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: artfetch-package-*
-          path: artifact
-          merge-multiple: true
-          run-id: ${{ steps.release.outputs.packageRunId }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate candidate image tarballs
-        run: |
+          set -Eeuo pipefail
+          (cd dist && sha256sum -c "artfetch-deploy-${VERSION}.tgz.sha256")
+          tar -tzf "dist/artfetch-deploy-${VERSION}.tgz" >/tmp/artfetch-package-files.txt
+          grep -q "artfetch-deploy-${VERSION}/images/postgres-16-alpine.tar.gz" /tmp/artfetch-package-files.txt
           python3 - <<'PY'
           import hashlib
           import json
+          import os
           from pathlib import Path
 
+          version = os.environ["VERSION"]
+          root = Path("dist") / f"artfetch-deploy-{version}"
           def sha256_file(path):
               digest = hashlib.sha256()
               with path.open("rb") as handle:
@@ -112,72 +293,47 @@ jobs:
                       digest.update(chunk)
               return digest.hexdigest()
 
-          manifest = json.loads(Path("artifact/release-manifest.json").read_text(encoding="utf-8"))
-          if manifest.get("app") != "artfetch":
-              raise SystemExit("Manifest app must be artfetch")
-          for service in ("backend", "frontend", "jupyter"):
-              image = manifest["images"][service]
-              ref = image["ref"]
-              if not ref.startswith(f"artfetch-{service}:sha-"):
-                  raise SystemExit(f"{service} ref must be a local sha tag: {ref}")
-              tar_path = Path("artifact") / image["tar"]
-              if not tar_path.is_file():
-                  raise SystemExit(f"{service} image tar is missing: {tar_path}")
-              actual = sha256_file(tar_path)
-              expected = image["tarSha256"]
-              if actual != expected:
-                  raise SystemExit(f"{service} image tar sha mismatch: {actual} != {expected}")
+          manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+          if manifest["app"] != "artfetch":
+              raise SystemExit("manifest app mismatch")
+          if manifest["version"] != version or manifest["flywayVersion"] != version:
+              raise SystemExit("manifest version/flyway mismatch")
+          for key, image in manifest["images"].items():
+              tar = root / image["tar"]
+              if not tar.is_file():
+                  raise SystemExit(f"missing image tar for {key}: {tar}")
+              actual = sha256_file(tar)
+              if actual != image["tarSha256"]:
+                  raise SystemExit(f"image tar sha mismatch for {key}")
+          compose_sha = sha256_file(root / "docker-compose.prod.yml")
+          if compose_sha != manifest["compose"]["sha256"]:
+              raise SystemExit("compose sha mismatch")
           PY
-          (cd artifact/images && sha256sum -c *.sha256)
-
-      - name: Build release assets
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-          PACKAGE_RUN_ID: ${{ steps.release.outputs.packageRunId }}
-          RELEASE_NOTES: ${{ steps.release.outputs.releaseNotes }}
-        run: |
-          mkdir -p "dist/artfetch-deploy-${VERSION}"
-          cp -R artifact/. "dist/artfetch-deploy-${VERSION}/"
-          python3 - <<'PY'
-          import datetime
-          import json
-          import os
-          from pathlib import Path
-
-          path = Path(f'dist/artfetch-deploy-{os.environ["VERSION"]}/release-manifest.json')
-          manifest = json.loads(path.read_text(encoding="utf-8"))
-          manifest["version"] = os.environ["VERSION"]
-          manifest["releasedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-          manifest["packageRunId"] = os.environ["PACKAGE_RUN_ID"]
-          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-          PY
-          tar -C dist -czf "dist/artfetch-deploy-${VERSION}.tgz" "artfetch-deploy-${VERSION}"
-          (cd dist && sha256sum "artfetch-deploy-${VERSION}.tgz" > "artfetch-deploy-${VERSION}.tgz.sha256")
-          cp "dist/artfetch-deploy-${VERSION}/release-manifest.json" dist/release-manifest.json
-          printf '%s\n' "$RELEASE_NOTES" > dist/release-notes.md
-          cat > dist/deployment-instructions.md <<EOF
-          Deploy \`${VERSION}\` with the manually approved \`Deploy Production\` workflow.
-          The deployment loads Docker image tarballs from \`artfetch-deploy-${VERSION}.tgz\`.
-          EOF
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_NOTES: ${{ steps.release.outputs.releaseNotes }}
+          GIT_SHA: ${{ steps.release.outputs.gitSha }}
         run: |
-          manifest_sha="$(python3 -c 'import json; print(json.load(open("dist/release-manifest.json"))["gitSha"])')"
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            git tag "release/${VERSION}" "${manifest_sha}"
+          set -Eeuo pipefail
+          if git rev-parse "release/${VERSION}" >/dev/null 2>&1; then
+            existing="$(git rev-parse "release/${VERSION}")"
+            if [ "$existing" != "$GIT_SHA" ]; then
+              echo "Tag release/${VERSION} already exists at ${existing}, expected ${GIT_SHA}."
+              exit 1
+            fi
+          else
+            git tag "release/${VERSION}" "$GIT_SHA"
             git push origin "release/${VERSION}"
-          elif [ "$(git rev-parse HEAD)" != "${manifest_sha}" ]; then
-            echo "Tag commit does not match release manifest gitSha."
-            exit 1
           fi
+          printf '%s\n' "$RELEASE_NOTES" > dist/release-notes.md
           gh release create "release/${VERSION}" \
             dist/release-manifest.json \
             "dist/artfetch-deploy-${VERSION}.tgz" \
             "dist/artfetch-deploy-${VERSION}.tgz.sha256" \
-            dist/deployment-instructions.md \
+            dist/install-or-upgrade-latest.sh \
             --title "${VERSION}" \
             --notes-file dist/release-notes.md \
             --verify-tag

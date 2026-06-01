@@ -49,7 +49,7 @@
 - `backend/src/main/java/com/artfetch/entity`
 - `backend/src/main/java/com/artfetch/config/SchemaMaintenanceService.java`
 - `backend/src/main/resources/application.yml`
-- `docs/migrate.sql`，如果项目继续维护手动 SQL
+- `backend/src/main/resources/db/migration`，后续数据库变更统一进入 Flyway；`docs/migrate.sql` 仅保留历史资料
 
 验收标准：
 

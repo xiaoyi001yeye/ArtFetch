@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Test backend
+        working-directory: backend
+        run: mvn test
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify backend image build
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: false
+          load: false
+          tags: artfetch-backend:ci
+
+      - name: Verify frontend image build
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: false
+          load: false
+          tags: artfetch-frontend:ci
+
+      - name: Verify Jupyter image build
+        uses: docker/build-push-action@v6
+        with:
+          context: ml
+          push: false
+          load: false
+          tags: artfetch-jupyter:ci

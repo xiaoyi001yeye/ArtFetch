@@ -1,88 +1,216 @@
-# GitHub Actions 制品构建与生产部署设计
+# ArtFetch GitHub Actions 离线制品发布与服务器安装升级设计
 
-状态：主设计文档
+状态：发布制品与服务器安装升级的唯一事实来源
 
 更新日期：2026-06-01
 
-本文档是 ArtFetch 发布部署链路的事实来源。当前决策是：**不再把 ArtFetch 自有 Docker 镜像推送到 GHCR 或其他镜像仓库；GitHub Actions 构建镜像后导出为 `tar.gz`，随部署包一起作为 GitHub Release 附件发布。**
+本文档合并并取代 ArtFetch 旧的发布制品、服务器构建、registry 部署、GitHub Actions SSH 部署等设计口径。其它文档如与本文冲突，以本文为准，并应立即调整。
 
-## 1. 核心结论
+## 1. 核心决策
 
-ArtFetch 发布链路分为三段：
+ArtFetch 使用 GitHub Actions 构建发布制品，目标服务器只下载 GitHub Release 附件并在本机 `docker load` 后启动服务。
 
-- `Package`：构建后端、前端和 Jupyter 工具服务，构建 Docker 镜像，把镜像 `docker save` 为 `tar.gz`，生成候选部署包 artifact。
-- `Release`：人工选择一次成功的 Package run，把候选部署包晋升为 GitHub Release 附件。
-- `Deploy Production`：生产审批后下载 Release 附件，上传到服务器，服务器校验并 `docker load` 镜像 tar，然后重启服务。
-
-生产服务器不再执行：
+目标服务器禁止执行：
 
 - `npm run build`
 - `mvn package`
 - `docker build`
-- `docker pull ghcr.io/...`
+- `docker pull`
+- 从 Docker Hub、GHCR 或其它 registry 拉取运行镜像
+- 从源码仓库拉取代码后现场构建
 
-生产服务器只消费：
+目标服务器只允许消费：
 
-- GitHub Release 附件 `artfetch-deploy-<version>.tgz`
-- GitHub Release 附件 `artfetch-deploy-<version>.tgz.sha256`
-- 部署包内的 `release-manifest.json`
-- 部署包内的 `images/*.tar.gz`
+- GitHub 最新正式 Release 的附件
+- `release-manifest.json`
+- `artfetch-deploy-<version>.tgz`
+- `artfetch-deploy-<version>.tgz.sha256`
+- `install-or-upgrade-latest.sh`
 
-## 2. 总体流程
+GitHub Actions 可以访问 Docker Hub、Maven、npm 等构建依赖源；目标服务器不能依赖这些源。
 
-```mermaid
-flowchart TD
-    A["Pull Request"] --> B["Package verify: tests, frontend build, docker build no artifact"]
-    C["Push main / workflow_dispatch"] --> D["Package: build app and Docker images"]
-    D --> E["docker save backend/frontend/jupyter images"]
-    E --> F["Generate release-manifest.json"]
-    F --> G["Upload candidate workflow artifact"]
-    G --> H["Release: manual promotion"]
-    H --> I["Validate image tar sha256 and compose sha256"]
-    I --> J["Create release tag and GitHub Release"]
-    J --> K["Attach artfetch-deploy-version.tgz"]
-    K --> L["Deploy Production: environment approval"]
-    L --> M["Download release assets"]
-    M --> N["SSH upload package to production"]
-    N --> O["Server verifies package and image tar checksums"]
-    O --> P["docker load image tarballs"]
-    P --> Q["Restart backend/frontend/jupyter with local sha tags"]
-    Q --> R["Automatic verification"]
-```
+## 2. 版本规则
 
-## 3. 制品定义
-
-每次成功的非 PR Package run 生成一个 workflow artifact：
+版本号统一使用大写 `V` 开头的语义化版本：
 
 ```text
-artfetch-package-<git-sha>/
+V1.0.0
+V1.0.1
+V1.1.0
+V2.0.0
+```
+
+当前版本从 `V1.0.0` 开始。
+
+版本事实来源是 Flyway 最新迁移文件。发布版本必须等于仓库中最新 Flyway 迁移版本：
+
+```text
+backend/src/main/resources/db/migration/V1.0.0__baseline_artfetch_schema.sql
+```
+
+同一版本必须贯穿：
+
+- Flyway 迁移版本：`V1.0.0__baseline_artfetch_schema.sql`
+- Git tag：`release/V1.0.0`
+- GitHub Release：`V1.0.0`
+- 部署包：`artfetch-deploy-V1.0.0.tgz`
+- 自有服务镜像版本 tag：`artfetch-backend:V1.0.0`
+- Manifest：`"version": "V1.0.0"`
+
+任何 `YYYY.MM.DD.N` 日期版本号不再用于新发布链路。
+
+## 3. 数据库迁移策略
+
+ArtFetch 引入 Flyway 管理数据库结构。
+
+新库：
+
+- Flyway 执行 `V1.0.0__baseline_artfetch_schema.sql` 创建完整 schema。
+
+旧生产库：
+
+- 首次引入 Flyway 时启用 baseline。
+- `spring.flyway.baseline-on-migrate=true`
+- `spring.flyway.baseline-version=1.0.0`
+- Flyway 记录旧库已经处于 `V1.0.0`。
+
+生产环境 Hibernate 不再负责自动改表：
+
+- 生产默认 `spring.jpa.hibernate.ddl-auto=validate`
+- 本地开发是否允许 `update` 由环境配置另行决定
+
+后续任何 schema 变更都必须新增 Flyway 迁移文件，例如：
+
+```text
+V1.0.1__add_xxx.sql
+V1.1.0__change_yyy.sql
+```
+
+发布 Actions 必须校验输入版本等于最新 Flyway 版本，否则失败。
+
+## 4. GitHub Actions 流程
+
+发布链路只保留两个 workflow：
+
+- `CI`：用于 PR 和普通 push 校验。
+- `Release`：手动触发，构建离线制品并创建 GitHub Release。
+
+不再保留：
+
+- `Package` 候选 artifact 晋升流程
+- `Deploy Production` SSH 主动部署流程
+- GitHub Actions 连接生产服务器的生产部署路径
+
+### 4.1 CI Workflow
+
+触发：
+
+- `pull_request`
+- `push`
+
+职责：
+
+1. 后端测试。
+2. 前端构建。
+3. Docker build 验证 backend、frontend、jupyter 镜像可构建。
+4. 不上传 Release 附件。
+5. 不部署服务器。
+
+### 4.2 Release Workflow
+
+触发：
+
+- `workflow_dispatch`
+
+输入：
+
+- `version`，例如 `V1.0.0`
+- `releaseNotes`
+
+职责：
+
+1. 校验版本格式为 `^V[0-9]+\.[0-9]+\.[0-9]+$`。
+2. 找到最新 Flyway 迁移版本，确认等于输入版本。
+3. 后端测试。
+4. 前端构建。
+5. 构建自有服务镜像。
+6. 拉取运行所需外部镜像。
+7. 为每个自有服务镜像同时打版本 tag 和 Git SHA tag。
+8. `docker save | gzip` 导出所有运行镜像 tar。
+9. 生成 `release-manifest.json`。
+10. 生成 `artfetch-deploy-<version>.tgz` 和 SHA256。
+11. 创建或校验 Git tag `release/<version>`。
+12. 创建 GitHub 正式 Release 并上传附件。
+
+Release workflow 不连接生产服务器。
+
+## 5. 镜像制品范围
+
+Release 包必须包含目标服务器运行所需的全部 Docker 镜像 tar。目标服务器不能 `docker pull` 补齐缺失镜像。
+
+当前运行镜像包括：
+
+- `artfetch-backend`
+- `artfetch-frontend`
+- `artfetch-jupyter`
+- `postgres:16-alpine`
+
+自有服务镜像同时保留两个 tag：
+
+```text
+artfetch-backend:V1.0.0
+artfetch-backend:sha-<full-git-sha>
+artfetch-frontend:V1.0.0
+artfetch-frontend:sha-<full-git-sha>
+artfetch-jupyter:V1.0.0
+artfetch-jupyter:sha-<full-git-sha>
+```
+
+部署时 `.env.release` 使用版本 tag，manifest 同时记录版本 tag、SHA tag、image id 和 tar SHA256。
+
+外部镜像不重新命名为 ArtFetch 自有镜像；保留原始 ref，例如：
+
+```text
+postgres:16-alpine
+```
+
+但该镜像 tar 必须包含在部署包中，并在 manifest 中记录。
+
+## 6. Release 附件
+
+每个正式 GitHub Release 上传这些顶层附件：
+
+```text
+release-manifest.json
+artfetch-deploy-V1.0.0.tgz
+artfetch-deploy-V1.0.0.tgz.sha256
+install-or-upgrade-latest.sh
+```
+
+`install-or-upgrade-latest.sh` 是用户在目标服务器直接运行的入口脚本，必须作为 Release 顶层附件暴露，方便复制、下载和审计。
+
+部署包内部结构：
+
+```text
+artfetch-deploy-V1.0.0/
 ├── docker-compose.prod.yml
 ├── .env.example
 ├── release-manifest.json
 ├── images/
-│   ├── artfetch-backend-<git-sha>.tar.gz
-│   ├── artfetch-backend-<git-sha>.tar.gz.sha256
-│   ├── artfetch-frontend-<git-sha>.tar.gz
-│   ├── artfetch-frontend-<git-sha>.tar.gz.sha256
-│   ├── artfetch-jupyter-<git-sha>.tar.gz
-│   └── artfetch-jupyter-<git-sha>.tar.gz.sha256
+│   ├── artfetch-backend-V1.0.0.tar.gz
+│   ├── artfetch-backend-V1.0.0.tar.gz.sha256
+│   ├── artfetch-frontend-V1.0.0.tar.gz
+│   ├── artfetch-frontend-V1.0.0.tar.gz.sha256
+│   ├── artfetch-jupyter-V1.0.0.tar.gz
+│   ├── artfetch-jupyter-V1.0.0.tar.gz.sha256
+│   ├── postgres-16-alpine.tar.gz
+│   └── postgres-16-alpine.tar.gz.sha256
 └── scripts/
-    ├── artfetch-deploy-release.sh
-    └── artfetch-rollback-release.sh
+    ├── artfetch-install-or-upgrade.sh
+    └── artfetch-clean-failed-install.sh
 ```
 
-每次正式 Release 至少上传这些附件：
-
-```text
-release-manifest.json
-artfetch-deploy-<version>.tgz
-artfetch-deploy-<version>.tgz.sha256
-deployment-instructions.md
-```
-
-其中 `artfetch-deploy-<version>.tgz` 内部包含完整部署目录和镜像 tar。Release 不单独依赖 GHCR。
-
-部署包禁止包含：
+部署包和附件禁止包含：
 
 - `.env`
 - 数据库 dump
@@ -92,74 +220,52 @@ deployment-instructions.md
 - SSH 私钥
 - GitHub token
 
-## 4. 镜像命名
+## 7. Manifest Schema
 
-由于不再使用 registry，生产 Compose 使用本地 Docker image tag：
+`release-manifest.json` 是发布、安装、升级、排障和审计的事实来源。
 
-```text
-artfetch-backend:sha-<full-git-sha>
-artfetch-frontend:sha-<full-git-sha>
-artfetch-jupyter:sha-<full-git-sha>
-```
-
-部署脚本会从部署包中读取镜像 tar，执行：
-
-```bash
-docker load -i images/artfetch-backend-<git-sha>.tar.gz
-docker load -i images/artfetch-frontend-<git-sha>.tar.gz
-docker load -i images/artfetch-jupyter-<git-sha>.tar.gz
-```
-
-然后写入服务器本地 `.env.release`：
-
-```env
-ARTFETCH_BACKEND_IMAGE=artfetch-backend:sha-<full-git-sha>
-ARTFETCH_FRONTEND_IMAGE=artfetch-frontend:sha-<full-git-sha>
-ARTFETCH_JUPYTER_IMAGE=artfetch-jupyter:sha-<full-git-sha>
-```
-
-`docker-compose.prod.yml` 继续通过这两个变量启动服务。
-
-## 5. Manifest Schema
-
-`release-manifest.json` 是发布、部署、排障和回滚的事实来源。示例：
+示例：
 
 ```json
 {
   "app": "artfetch",
-  "version": "2026.06.01.1",
+  "version": "V1.0.0",
   "gitSha": "abcdef1234567890abcdef1234567890abcdef12",
   "gitShortSha": "abcdef1",
   "builtAt": "2026-06-01T08:00:00Z",
   "releasedAt": "2026-06-01T09:00:00Z",
-  "packageRunId": "1234567890",
+  "flywayVersion": "V1.0.0",
   "images": {
     "backend": {
-      "tag": "artfetch-backend:sha-abcdef1234567890abcdef1234567890abcdef12",
-      "ref": "artfetch-backend:sha-abcdef1234567890abcdef1234567890abcdef12",
+      "service": "backend",
+      "versionTag": "artfetch-backend:V1.0.0",
+      "shaTag": "artfetch-backend:sha-abcdef1234567890abcdef1234567890abcdef12",
       "imageId": "sha256:<docker-image-id>",
-      "tar": "images/artfetch-backend-abcdef1234567890abcdef1234567890abcdef12.tar.gz",
+      "tar": "images/artfetch-backend-V1.0.0.tar.gz",
       "tarSha256": "<tar-file-sha256>"
     },
     "frontend": {
-      "tag": "artfetch-frontend:sha-abcdef1234567890abcdef1234567890abcdef12",
-      "ref": "artfetch-frontend:sha-abcdef1234567890abcdef1234567890abcdef12",
+      "service": "frontend",
+      "versionTag": "artfetch-frontend:V1.0.0",
+      "shaTag": "artfetch-frontend:sha-abcdef1234567890abcdef1234567890abcdef12",
       "imageId": "sha256:<docker-image-id>",
-      "tar": "images/artfetch-frontend-abcdef1234567890abcdef1234567890abcdef12.tar.gz",
+      "tar": "images/artfetch-frontend-V1.0.0.tar.gz",
       "tarSha256": "<tar-file-sha256>"
     },
     "jupyter": {
-      "tag": "artfetch-jupyter:sha-abcdef1234567890abcdef1234567890abcdef12",
-      "ref": "artfetch-jupyter:sha-abcdef1234567890abcdef1234567890abcdef12",
+      "service": "jupyter",
+      "versionTag": "artfetch-jupyter:V1.0.0",
+      "shaTag": "artfetch-jupyter:sha-abcdef1234567890abcdef1234567890abcdef12",
       "imageId": "sha256:<docker-image-id>",
-      "tar": "images/artfetch-jupyter-abcdef1234567890abcdef1234567890abcdef12.tar.gz",
+      "tar": "images/artfetch-jupyter-V1.0.0.tar.gz",
       "tarSha256": "<tar-file-sha256>"
-    }
-  },
-  "externalImages": {
+    },
     "postgres": {
       "service": "postgres",
-      "ref": "postgres:16-alpine"
+      "ref": "postgres:16-alpine",
+      "imageId": "sha256:<docker-image-id>",
+      "tar": "images/postgres-16-alpine.tar.gz",
+      "tarSha256": "<tar-file-sha256>"
     }
   },
   "compose": {
@@ -178,109 +284,100 @@ ARTFETCH_JUPYTER_IMAGE=artfetch-jupyter:sha-<full-git-sha>
 校验规则：
 
 - `app` 必须等于 `artfetch`。
-- Release manifest 必须有 `version`。
-- `images.backend.ref` 必须等于 `artfetch-backend:sha-<gitSha>`。
-- `images.frontend.ref` 必须等于 `artfetch-frontend:sha-<gitSha>`。
-- `images.jupyter.ref` 必须等于 `artfetch-jupyter:sha-<gitSha>`。
+- `version` 必须匹配 `^V[0-9]+\.[0-9]+\.[0-9]+$`。
+- `version` 必须等于 `flywayVersion`。
+- Git tag `release/<version>` 必须指向 `gitSha`。
 - 每个 `images.*.tar` 必须存在于部署包内。
 - 每个镜像 tar 的实际 SHA256 必须等于 `tarSha256`。
-- `compose.sha256` 必须与部署包内 `docker-compose.prod.yml` 实际 hash 一致。
-- Git tag `release/<version>` 必须与 manifest `gitSha` 指向同一 commit。
+- `compose.sha256` 必须等于部署包内 `docker-compose.prod.yml` 的实际 SHA256。
 
-## 6. GitHub Actions
+## 8. Compose 生产形态
 
-### Package
+`docker-compose.prod.yml` 必须通过 `.env.release` 指定所有运行镜像，包括外部镜像。
 
-触发：
+示例：
 
-- `pull_request`
-- `push` 到 `main`
-- `workflow_dispatch` 手动指定 `ref`
+```yaml
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
 
-PR 行为：
+  backend:
+    image: ${ARTFETCH_BACKEND_IMAGE:?ARTFETCH_BACKEND_IMAGE is required}
 
-- 执行后端测试。
-- 执行前端构建。
-- 执行 Docker build 验证。
-- 不上传候选部署包。
-- 不生成 Release 附件。
+  frontend:
+    image: ${ARTFETCH_FRONTEND_IMAGE:?ARTFETCH_FRONTEND_IMAGE is required}
 
-非 PR 行为：
+  jupyter:
+    image: ${ARTFETCH_JUPYTER_IMAGE:?ARTFETCH_JUPYTER_IMAGE is required}
+```
 
-1. Checkout 指定 ref。
-2. 后端执行 `mvn test`。
-3. 前端执行 `npm ci && npm run build`。
-4. 构建 `artfetch-backend:sha-<gitSha>`。
-5. 构建 `artfetch-frontend:sha-<gitSha>`。
-6. 构建 `artfetch-jupyter:sha-<gitSha>`。
-7. `docker save | gzip` 导出三个镜像 tar。
-8. 生成镜像 tar 的 SHA256。
-9. 生成候选 `release-manifest.json`。
-10. 上传候选 workflow artifact，保留 30 天。
+部署脚本从 manifest 生成 `.env.release`：
 
-### Release
+```env
+POSTGRES_IMAGE=postgres:16-alpine
+ARTFETCH_BACKEND_IMAGE=artfetch-backend:V1.0.0
+ARTFETCH_FRONTEND_IMAGE=artfetch-frontend:V1.0.0
+ARTFETCH_JUPYTER_IMAGE=artfetch-jupyter:V1.0.0
+```
 
-触发：
+脚本必须先 `docker load` 所有镜像，再执行 `docker image inspect`，确认目标服务器本地已经具备全部镜像。
 
-- `workflow_dispatch` 输入 `packageRunId`、`version`、`releaseNotes`
-- 推送符合 `release/YYYY.MM.DD.N` 的 tag。tag 触发时，workflow 会自动查找同一 commit 上成功完成的 main 分支 Package run。
+## 9. 服务器入口脚本
 
-职责：
+`install-or-upgrade-latest.sh` 是唯一推荐入口。它同时支持首次安装和后续升级。
 
-1. 校验版本号格式。
-2. 校验指定 Package run 成功。
-3. 下载候选 artifact。
-4. 校验 manifest、Compose checksum、镜像 tar checksum。
-5. 生成正式部署包和 SHA256。
-6. 创建或校验 Git tag：`release/<version>`。
-7. 创建 GitHub Release 并上传附件。
+默认项目目录：
 
-Release 不重新构建镜像，不推送镜像，不连接生产服务器。
+```text
+/opt/artfetch
+```
 
-### Deploy Production
+可通过环境变量覆盖：
 
-触发：
+```bash
+ARTFETCH_PROJECT_DIR=/data/artfetch bash install-or-upgrade-latest.sh
+```
 
-- `workflow_dispatch` 输入 `version`
-- `release.published`
+脚本依赖：
 
-保护：
+- `curl`
+- `tar`
+- `sha256sum`
+- `docker`
+- `docker compose`
+- `python3`
+- `awk`
+- `sed`
+- `grep`
 
-- Job 使用 GitHub Environment：`production`。
-- `production` 必须配置 required reviewers。
-- Workflow 使用 `production-deploy` 并发锁。
+脚本不依赖 GitHub CLI `gh`。
 
-职责：
+### 9.1 下载最新 Release
 
-1. 解析 Release 版本。
-2. 下载 Release 附件并校验部署包 SHA256。
-3. 展示非敏感 manifest 摘要。
-4. 配置 SSH，使用固定 known hosts。
-5. 上传部署包和部署脚本到生产服务器。
-6. 远程执行 `artfetch-deploy-release.sh`。
+默认只取 GitHub 最新正式 Release：
 
-远程部署脚本职责：
+```text
+https://api.github.com/repos/<owner>/<repo>/releases/latest
+```
 
-1. 校验服务器命令、磁盘空间、`.env` 必要变量。
-2. 解包部署包并校验 manifest、Compose hash、镜像 tar hash。
-3. 识别当前 active compose 文件。
-4. 启动或确认 PostgreSQL 可用。
-5. 检查运行中任务；发现 `RUNNING` 或上传中任务则阻断部署。
-6. 在停止当前 app 容器前先 `docker load` 目标镜像 tar。
-7. 停止 `frontend`、`backend`、`jupyter`，保留 `postgres`。
-8. 保存部署前快照和数据库备份。
-9. 安装新的 `docker-compose.prod.yml`、`release-manifest.json`、`.env.release`。
-10. 启动 `backend`、`frontend`、`jupyter`。
-11. 校验容器状态和实际 image tag。
-12. 校验 `/actuator/health`。
-13. 校验前端入口。
-14. 校验 `/api/auth/me` 未登录返回 `401`。
-15. 检查近期后端日志。
-16. 写入 `backups/deploy-history.log`。
+Draft 和 prerelease 不作为默认部署来源。
 
-## 7. 生产服务器接入
+公开仓库无需 token。私有仓库可使用：
 
-生产目录：
+```bash
+GITHUB_TOKEN=<token> bash install-or-upgrade-latest.sh
+```
+
+脚本下载：
+
+- `release-manifest.json`
+- `artfetch-deploy-<version>.tgz`
+- `artfetch-deploy-<version>.tgz.sha256`
+
+### 9.2 首次安装
+
+如果目标目录不存在，脚本创建：
 
 ```text
 /opt/artfetch
@@ -288,125 +385,108 @@ Release 不重新构建镜像，不推送镜像，不连接生产服务器。
 ├── .env.release
 ├── docker-compose.prod.yml
 ├── release-manifest.json
-├── active-compose-file
 ├── backend/logs/
 ├── storage/original-images/
-├── backups/
 ├── releases/
-└── scripts/
+└── backups/
 ```
 
-接入原则：
+如果 `.env` 不存在，脚本从 `.env.example` 创建并自动生成强随机值：
 
-- 不删除 PostgreSQL volume。
-- 不执行 `docker compose down -v`。
-- 不覆盖现有 `.env`，只检查必要变量是否存在。
-- 不打印 `.env`、Cookie、数据库密码、对象存储密钥等敏感值。
-- 不依赖生产服务器访问 GHCR。
-- Compose 中定义的每个服务都应默认启动；当前生产服务为 `postgres`、`backend`、`frontend`、`jupyter`。
+- `POSTGRES_PASSWORD`
+- `ARTFETCH_ADMIN_PASSWORD`
+- `ARTFETCH_OBJECT_STORAGE_ENCRYPTION_KEY`
 
-## 8. 验证标准
+脚本不得在终端、日志或 GitHub 输出中打印这些真实值。
 
-Package 成功标准：
+雅昌 Cookie、雅昌账号密码、对象存储业务配置不自动猜测。用户可后续编辑 `.env` 后重启服务。
 
-- 后端测试通过。
-- 前端构建通过。
-- 后端、前端和 Jupyter Docker 镜像构建成功。
-- 非 PR 触发时，三个镜像 tar 导出成功。
-- manifest 包含镜像 tar 路径和 tar SHA256。
+### 9.3 升级
+
+升级步骤：
+
+1. 下载最新正式 Release 附件。
+2. 校验部署包 SHA256。
+3. 解包并校验 manifest。
+4. 校验每个镜像 tar SHA256。
+5. `docker load` 所有镜像。
+6. `docker image inspect` 所有 manifest 中声明的镜像。
+7. 检查运行中任务，发现采集或上传任务正在运行则停止升级。
+8. 备份数据库。
+9. 替换 `docker-compose.prod.yml`、`.env.release`、`release-manifest.json`。
+10. `docker compose --env-file .env --env-file .env.release -f docker-compose.prod.yml up -d`。
+11. 验证容器状态、后端健康检查、前端入口、鉴权 API。
+
+升级过程不修改用户已有 `.env` 的密钥值。
+
+### 9.4 失败处理
+
+安装或升级失败时不做自动回滚。
+
+失败处理策略：
+
+- 清理本次失败解包目录。
+- 清理候选 `.env.release` 和候选 Compose 文件。
+- 停止并移除本次未成功启用的 ArtFetch 容器。
+- 保留 `.env`、数据库备份、本地图片和日志。
+- 用户再次运行 `install-or-upgrade-latest.sh` 重新安装或升级。
+
+如用户明确需要完全重装并删除数据，必须显式设置：
+
+```bash
+ARTFETCH_WIPE_DATA=1 bash install-or-upgrade-latest.sh
+```
+
+只有在该变量为 `1` 时，脚本才允许删除 PostgreSQL volume、本地图片和日志等持久化数据。
+
+## 10. 安全要求
+
+- GitHub Release 附件不得包含密钥。
+- `.env` 只存在于目标服务器。
+- `.env` 和 `.env.release` 权限必须为 `600`。
+- 脚本日志只输出环境变量是否存在，不输出真实值。
+- 服务器默认只暴露前端入口。
+- PostgreSQL、后端、Jupyter 默认绑定 `127.0.0.1` 或仅在 Docker 网络内部访问。
+- 本设计不新增 ArtFetch 应用内 API、页面或按钮，因此不需要新增 Sa-Token 权限码。
+
+如果后续新增发布管理 API、内部运维 API 或页面，必须按 `AGENTS.md` 的授权要求补齐权限码、后端 `@SaCheckPermission`、前端权限控制、审计日志和设计文档更新。
+
+## 11. 成功标准
 
 Release 成功标准：
 
-- Package run 是成功状态。
-- manifest 结构有效。
-- 镜像 tar 文件存在且 SHA256 匹配。
-- Release tag 与 manifest `gitSha` 一致。
-- 部署包 SHA256 文件有效。
+- 输入版本为 `Vx.y.z`。
+- 输入版本等于最新 Flyway 迁移版本。
+- 后端测试通过。
+- 前端构建通过。
+- 所有自有服务镜像构建成功。
+- 所有运行镜像成功导出 tar。
+- manifest 中每个镜像 tar SHA256 可校验。
+- Git tag `release/<version>` 创建成功。
+- GitHub Release 附件完整。
 
-Deploy 成功标准：
+服务器安装/升级成功标准：
 
-- 部署前数据库备份存在且非空。
-- 服务器成功 `docker load` 后端、前端和 Jupyter 镜像。
-- 线上 `backend`、`frontend`、`jupyter` 实际 image tag 与 manifest 一致。
-- `postgres` 健康。
-- `backend`、`frontend`、`jupyter` 运行且不处于 restarting。
-- `/actuator/health` 返回 `UP`。
-- 前端入口可访问。
-- 未登录访问 `/api/auth/me` 返回 `401`。
-- 后端近期日志没有持续启动错误、数据库连接错误或权限初始化错误。
+- 从最新正式 Release 下载附件成功。
+- 部署包 SHA256 校验成功。
+- 所有镜像 tar SHA256 校验成功。
+- 所有镜像 `docker load` 成功。
+- `.env.release` 包含所有运行镜像变量。
+- `docker compose config` 通过。
+- `postgres`、`backend`、`frontend`、`jupyter` 容器状态稳定。
+- 后端 `/actuator/health` 返回 UP。
+- 前端入口返回 2xx/3xx。
+- 未登录访问 `/api/auth/me` 返回 401。
 
-人工冒烟验证：
+## 12. 迁移旧文档
 
-- 登录页可以打开。
-- 管理员账号可以登录。
-- 任务列表可以加载。
-- 艺术品列表可以加载。
-- 图片访问和高清图状态正常。
-- Excel 导出可以下载。
-- 本次涉及权限、评估、对象存储、图片迁移或新任务类型时，验证对应入口和关键流程。
+以下旧口径不再作为实现依据：
 
-## 9. 回滚策略
+- 服务器拉代码后本地构建。
+- `docker compose up --build` 作为生产升级方式。
+- GHCR 或其它 registry 作为服务器运行镜像来源。
+- GitHub Actions 通过 SSH 主动部署生产服务器。
+- `YYYY.MM.DD.N` 日期版本号。
+- 手工 SQL 作为长期数据库迁移机制。
 
-应用回滚：
-
-1. 选择上一个 GitHub Release 重新执行 `Deploy Production`；或
-2. 使用部署失败时输出的 snapshot prefix 执行：
-
-```bash
-bash /opt/artfetch/scripts/artfetch-rollback-release.sh <snapshot-prefix>
-```
-
-应用回滚只恢复：
-
-- `.env`
-- `.env.release`
-- active compose 文件
-- `release-manifest.json`
-- `backend`、`frontend`、`jupyter` 容器
-
-Snapshot 回滚要求旧镜像仍存在于服务器本地 Docker image store。若旧镜像已被清理，应优先通过上一个 GitHub Release 重新部署。
-
-应用回滚默认不恢复数据库。数据库恢复是破坏性操作，只能人工确认后执行。
-
-## 10. 安全与权限
-
-GitHub Secrets：
-
-- `PROD_SSH_HOST`
-- `PROD_SSH_USER`
-- `PROD_SSH_PRIVATE_KEY`
-- `PROD_SSH_KNOWN_HOSTS`
-- `PROD_PROJECT_DIR`
-
-安全约束：
-
-- 生产 SSH Secret 只放在 `production` Environment。
-- `production` Environment 必须 required reviewers。
-- SSH 必须固定 host key，不允许静默信任未知主机。
-- Workflow 日志不能打印 `.env` 内容。
-- 部署包不能包含密钥。
-- Release 附件包含可运行镜像，私有仓库应保持 Release 访问权限受控。
-
-本设计不新增 ArtFetch 应用内 API、页面或按钮，因此不需要新增 Sa-Token 权限码。后续如果为发布、部署、业务任务创建内部 Ops API，则必须按 `AGENTS.md` 的授权要求补齐权限码、后端 `@SaCheckPermission`、前端按钮隐藏、审计日志和设计文档更新。
-
-## 11. 当前范围
-
-当前已落地范围：
-
-- `backend` 镜像 tar 制品。
-- `frontend` 镜像 tar 制品。
-- `jupyter` 镜像 tar 制品。
-- GitHub Release 附件承载部署包。
-- 生产服务器从部署包加载镜像。
-- Compose 中的每个服务默认启动。
-
-最终成功标准：
-
-- 任意 main commit 的 Package 都会构建并导出 `backend`、`frontend`、`jupyter` 镜像 tar。
-- Package manifest 中记录每个镜像 tar 的 SHA256。
-- Release 只接受成功 Package run，并校验所有 tar checksum。
-- GitHub Release 上传 manifest、部署包和 SHA256。
-- 生产 `.env.release` 只记录本地 sha tag。
-- 生产服务器不执行源码构建、不拉取 GHCR。
-- 部署前有运行中任务阻断和数据库备份。
-- 部署后自动验证通过，并记录部署历史。
+相关文档如果需要保留历史背景，必须在顶部明确声明：发布制品与服务器安装升级逻辑以本文为准。

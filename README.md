@@ -163,18 +163,11 @@ export ARTFETCH_AUTH_ARTRON_PASSWORD='your-password'
 
 ## 数据库迁移
 
-如果你是在旧版本数据库基础上升级，请在重启应用前手动执行迁移脚本：
+数据库结构将统一交给 Flyway 管理。发布版本必须与最新 Flyway 迁移版本一致，例如当前版本从 `V1.0.0` 开始，对应 `backend/src/main/resources/db/migration/V1.0.0__baseline_artfetch_schema.sql`。
 
-- [docs/migrate.sql](docs/migrate.sql)
+旧环境首次引入 Flyway 时按发布设计启用 baseline；生产环境不再依赖 `spring.jpa.hibernate.ddl-auto=update` 自动改表。历史手工迁移脚本 [docs/migrate.sql](docs/migrate.sql) 仅作为旧版本背景资料保留。
 
-当前迁移主要包括：
-
-- `year` 重命名为 `auction_date`
-- `collection` 重命名为 `auction_house`
-- 新增 `lot_number`
-- 删除旧的 `category`
-
-新环境首次启动时，`spring.jpa.hibernate.ddl-auto=update` 会自动补充大部分表结构；已有历史数据时仍建议先执行迁移脚本。
+发布制品、服务器安装升级和版本规则见 [docs/design-github-actions-release-deployment.md](docs/design-github-actions-release-deployment.md)。
 
 ## Jupyter 成交价预测调试
 
@@ -186,7 +179,7 @@ export ARTFETCH_AUTH_ARTRON_PASSWORD='your-password'
 docker compose up -d postgres jupyter
 ```
 
-如果你也想把整套应用一起拉起：
+如果你也想在本地开发环境把整套应用一起拉起：
 
 ```bash
 docker compose up -d --build

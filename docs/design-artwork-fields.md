@@ -39,7 +39,9 @@
 
 ### 1. 数据库（PostgreSQL）
 
-**需要执行 SQL 迁移脚本**（`ddl-auto: update` 只会新增列，不会重命名列）：
+**历史迁移说明**：这次字段调整最初以手工 SQL 描述，后续数据库结构迁移统一纳入 Flyway。发布版本必须与最新 Flyway 迁移版本一致，详见 [GitHub Actions 离线制品发布与服务器安装升级设计](design-github-actions-release-deployment.md)。
+
+旧手工 SQL 参考如下：
 
 ```sql
 -- 重命名列
@@ -53,7 +55,7 @@ ALTER TABLE artworks ADD COLUMN IF NOT EXISTS lot_number VARCHAR(100);
 ALTER TABLE artworks DROP COLUMN IF EXISTS category;
 ```
 
-> ⚠️ 注意：需在应用启动前执行，否则 Hibernate 会尝试创建新列导致冲突。
+> 注意：生产环境不再依赖 Hibernate `ddl-auto: update` 自动改表；后续 schema 变更必须进入 Flyway 迁移文件。
 
 ---
 
@@ -294,7 +296,7 @@ artwork.auctionHouse // 拍卖公司
 
 ## 待讨论问题
 
-1. **数据库迁移时机**：是否需要在应用启动时自动执行脚本，还是手动执行？项目目前没有 Flyway/Liquibase，建议维持手动执行或引入 Flyway。
+1. **数据库迁移时机**：已决策为引入 Flyway。发布版本必须与最新 Flyway 迁移版本一致，生产环境不再依赖手工 SQL 或 Hibernate `ddl-auto: update`。
 
 2. **`description` 字段**：是否在详情页展示？当前代码里有"描述"卡片，但 12 个核心字段里没有它。建议保留显示，但不列入核心字段。
 
