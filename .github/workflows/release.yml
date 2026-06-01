@@ -9,6 +9,9 @@ on:
       releaseNotes:
         description: Human-readable release notes
         required: true
+  push:
+    tags:
+      - "release/V*"
 
 permissions:
   contents: write
@@ -25,13 +28,27 @@ jobs:
       - name: Resolve and validate release inputs
         id: release
         env:
-          INPUT_VERSION: ${{ github.event.inputs.version }}
-          INPUT_RELEASE_NOTES: ${{ github.event.inputs.releaseNotes }}
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          INPUT_RELEASE_NOTES: ${{ github.event.inputs.releaseNotes || '' }}
         run: |
           set -Eeuo pipefail
-          version="${INPUT_VERSION}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION}"
+            release_notes="${INPUT_RELEASE_NOTES}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ] && printf '%s' "${GITHUB_REF_NAME}" | grep -Eq '^release/V[0-9]+\.[0-9]+\.[0-9]+$'; then
+            version="${GITHUB_REF_NAME#release/}"
+            release_notes="Release ${version} from ${GITHUB_SHA}."
+          else
+            echo "Release must be triggered manually or by a release/Vx.y.z tag."
+            exit 1
+          fi
+
           if ! printf '%s' "$version" | grep -Eq '^V[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Invalid version: ${version}. Expected Vx.y.z, for example V1.0.0."
+            exit 1
+          fi
+          if [ -z "$release_notes" ]; then
+            echo "Release notes are required for manual releases."
             exit 1
           fi
 
@@ -58,7 +75,7 @@ jobs:
             echo "gitSha=${git_sha}"
             echo "gitShortSha=${git_short_sha}"
             echo "releaseNotes<<EOF"
-            printf '%s\n' "${INPUT_RELEASE_NOTES}"
+            printf '%s\n' "${release_notes}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
