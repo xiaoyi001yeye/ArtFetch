@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class InitialStateExtractorTest {
 
@@ -63,6 +64,7 @@ class InitialStateExtractorTest {
 
     private Document loadDocument(String fileName) throws IOException {
         Path file = Path.of("..", "download", fileName);
+        assumeTrue(Files.exists(file), "sample HTML is stored outside this repository: " + file);
         return Jsoup.parse(Files.readString(file));
     }
 }
