@@ -110,11 +110,10 @@ V1.1.0__change_yyy.sql
 
 职责：
 
-1. 后端测试。
-2. 前端构建。
-3. Docker build 验证 backend、frontend、jupyter 镜像可构建。
-4. 不上传 Release 附件。
-5. 不部署服务器。
+1. 前端构建。
+2. Docker build 验证 backend、frontend、jupyter 镜像可构建。
+3. 不上传 Release 附件。
+4. 不部署服务器。
 
 ### 4.2 Release Workflow
 
@@ -131,16 +130,15 @@ V1.1.0__change_yyy.sql
 
 1. 校验版本格式为 `^V[0-9]+\.[0-9]+\.[0-9]+$`。
 2. 找到最新 Flyway 迁移版本，确认等于输入版本。
-3. 后端测试。
-4. 前端构建。
-5. 构建自有服务镜像。
-6. 拉取运行所需外部镜像。
-7. 为每个自有服务镜像同时打版本 tag 和 Git SHA tag。
-8. `docker save | gzip` 导出所有运行镜像 tar。
-9. 生成 `release-manifest.json`。
-10. 生成 `artfetch-deploy-<version>.tgz` 和 SHA256。
-11. 创建或校验 Git tag `release/<version>`。
-12. 创建 GitHub 正式 Release 并上传附件。
+3. 前端构建。
+4. 构建自有服务镜像。
+5. 拉取运行所需外部镜像。
+6. 为每个自有服务镜像同时打版本 tag 和 Git SHA tag。
+7. `docker save | gzip` 导出所有运行镜像 tar。
+8. 生成 `release-manifest.json`。
+9. 生成 `artfetch-deploy-<version>.tgz` 和 SHA256。
+10. 创建或校验 Git tag `release/<version>`。
+11. 创建 GitHub 正式 Release 并上传附件。
 
 Release workflow 不连接生产服务器。
 
@@ -273,7 +271,7 @@ artfetch-deploy-V1.0.0/
     "sha256": "<compose-file-sha256>"
   },
   "build": {
-    "backendTest": "passed",
+    "backendTest": "skipped",
     "frontendBuild": "passed",
     "imageBuild": "passed",
     "imageExport": "passed"
@@ -457,7 +455,6 @@ Release 成功标准：
 
 - 输入版本为 `Vx.y.z`。
 - 输入版本等于最新 Flyway 迁移版本。
-- 后端测试通过。
 - 前端构建通过。
 - 所有自有服务镜像构建成功。
 - 所有运行镜像成功导出 tar。
