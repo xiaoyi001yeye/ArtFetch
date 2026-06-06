@@ -32,7 +32,23 @@ ArtFetch 是一个艺术品数据采集与管理系统，包含 Spring Boot 后�
 
 ## 快速启动
 
-### 方式一：Docker Compose
+### 方式一：服务器制品安装
+
+适用于已经安装 Docker 和 Docker Compose plugin 的 Linux 服务器。该方式不需要 `git clone`，会从 GitHub Release 下载最新正式离线制品，校验后加载镜像并启动服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xiaoyi001yeye/ArtFetch/main/scripts/deploy/install-or-upgrade-latest.sh | sudo env ARTFETCH_GITHUB_REPOSITORY=xiaoyi001yeye/ArtFetch ARTFETCH_PROJECT_DIR=/opt/artfetch bash
+```
+
+如果当前已经是 `root` 用户，可以去掉 `sudo env`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/xiaoyi001yeye/ArtFetch/main/scripts/deploy/install-or-upgrade-latest.sh | ARTFETCH_GITHUB_REPOSITORY=xiaoyi001yeye/ArtFetch ARTFETCH_PROJECT_DIR=/opt/artfetch bash
+```
+
+安装完成后服务目录位于 `/opt/artfetch`。首次安装会自动生成 `/opt/artfetch/.env`，建议立即检查并妥善保存管理员密码、数据库密码和对象存储加密密钥。
+
+### 方式二：Docker Compose
 
 确保本机已安装 Docker 和 Docker Compose，然后在项目根目录执行：
 
@@ -53,7 +69,7 @@ docker compose up -d --build
 docker compose down
 ```
 
-### 方式二：本地开发运行
+### 方式三：本地开发运行
 
 #### 1. 启动 PostgreSQL
 

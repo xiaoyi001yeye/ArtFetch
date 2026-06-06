@@ -85,16 +85,21 @@ log "Latest release version: ${VERSION}"
 download_asset() {
   local url="$1"
   local output="$2"
-  curl -fsSL \
+  local name="$3"
+  log "Downloading ${name}..."
+  curl -fL --progress-bar \
     -H "Accept: application/octet-stream" \
     "${auth_header[@]}" \
     "$url" \
     -o "$output"
+  local size
+  size="$(du -h "$output" | awk '{print $1}')"
+  log "Downloaded ${name} (${size})."
 }
 
-download_asset "$MANIFEST_URL" "$TMP_DIR/release-manifest.json"
-download_asset "$PACKAGE_URL" "$TMP_DIR/artfetch-deploy-${VERSION}.tgz"
-download_asset "$PACKAGE_SHA_URL" "$TMP_DIR/artfetch-deploy-${VERSION}.tgz.sha256"
+download_asset "$MANIFEST_URL" "$TMP_DIR/release-manifest.json" "release-manifest.json"
+download_asset "$PACKAGE_URL" "$TMP_DIR/artfetch-deploy-${VERSION}.tgz" "artfetch-deploy-${VERSION}.tgz"
+download_asset "$PACKAGE_SHA_URL" "$TMP_DIR/artfetch-deploy-${VERSION}.tgz.sha256" "artfetch-deploy-${VERSION}.tgz.sha256"
 
 log "Verifying downloaded package checksum..."
 (cd "$TMP_DIR" && sha256sum -c "artfetch-deploy-${VERSION}.tgz.sha256")
