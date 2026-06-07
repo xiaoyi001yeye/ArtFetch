@@ -18,6 +18,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import TasksPage from './pages/TasksPage'
 import ArtworksPage from './pages/ArtworksPage'
 import ArtworkDetailPage from './pages/ArtworkDetailPage'
+import ArtworkImageViewerPage from './pages/ArtworkImageViewerPage'
 import LoginPage from './pages/LoginPage'
 import UsersPage from './pages/auth/UsersPage'
 import RolesPage from './pages/auth/RolesPage'
@@ -204,6 +205,7 @@ export default function App() {
           <Route path="/tasks" element={<RequireAuth permissions={[permissions.taskView]}><TasksPage /></RequireAuth>} />
           <Route path="/artworks" element={<RequireAuth permissions={[permissions.artworkView]}><ArtworksPage /></RequireAuth>} />
           <Route path="/artworks/:id" element={<RequireAuth permissions={[permissions.artworkView]}><ArtworkDetailPage /></RequireAuth>} />
+          <Route path="/artworks/:id/images/:kind" element={<RequireAuth permissions={[permissions.artworkView, permissions.artworkImageView]}><ArtworkImageViewerPage /></RequireAuth>} />
           <Route path="/hd-image-migrations" element={<RequireAuth permissions={[permissions.hdImageMigrationView]}><HdImageMigrationsPage /></RequireAuth>} />
           <Route path="/evaluations" element={<RequireAuth permissions={[permissions.evaluationView]}><EvaluationsPage /></RequireAuth>} />
           <Route path="/evaluations/new" element={<RequireAuth permissions={[permissions.evaluationCreate]}><EvaluationEditorPage /></RequireAuth>} />

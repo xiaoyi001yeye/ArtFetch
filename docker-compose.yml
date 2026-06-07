@@ -7,6 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-artfetch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
     ports:
       - "${POSTGRES_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -29,7 +30,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-artfetch}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       TZ: Asia/Shanghai
-      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Shanghai"
       ARTFETCH_SOURCE_BASE_URL: ${ARTWORK_SOURCE_URL:-https://artso.artron.net/auction/search_auction.php}
       ARTFETCH_SOURCE_REQUEST_DELAY_MS: ${REQUEST_DELAY_MS:-300}
       ARTFETCH_AUTH_ARTRON_COOKIE: ${ARTFETCH_AUTH_ARTRON_COOKIE:-}
@@ -54,6 +55,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: artfetch-frontend
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:
@@ -72,6 +75,7 @@ services:
       ARTFETCH_DB_USER: ${POSTGRES_USER:-artfetch}
       ARTFETCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       PYTHONPATH: /workspace/src
+      TZ: Asia/Shanghai
     ports:
       - "${JUPYTER_BIND_HOST:-127.0.0.1}:${JUPYTER_PORT:-8888}:8888"
     volumes:

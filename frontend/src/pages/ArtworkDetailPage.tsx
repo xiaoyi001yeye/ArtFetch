@@ -50,7 +50,8 @@ export default function ArtworkDetailPage() {
   if (!artwork) return null
 
   const canViewOriginal = Boolean(artwork.originalImageAvailable || artwork.originalImageSourceUrl || artwork.sourceUrl || artwork.imageUrl)
-  const hdImageViewUrl = artwork.hdImageAvailable ? api.hdImageViewUrl(artwork.id) : undefined
+  const originalImageViewerUrl = `/artworks/${artwork.id}/images/original`
+  const hdImageViewerUrl = `/artworks/${artwork.id}/images/hd`
   const hdImageTooltip = artwork.hdImageAvailable
     ? '从本地打开已下载的超清无损图'
     : artwork.hdImageStatus === 'FAILED'
@@ -68,15 +69,6 @@ export default function ArtworkDetailPage() {
       message.error(e.message)
     } finally {
       setRedownloading(false)
-    }
-  }
-
-  const handleOpenProtectedImage = async (url?: string) => {
-    if (!url) return
-    try {
-      await api.openProtectedBlob(url)
-    } catch (e: any) {
-      message.error(e.message)
     }
   }
 
@@ -131,7 +123,7 @@ export default function ArtworkDetailPage() {
               </Button>
             )}
             {canViewOriginal && hasPermission(permissions.artworkImageView) && (
-              <Button icon={<PictureOutlined />} onClick={() => handleOpenProtectedImage(api.originalImageViewUrl(artwork.id))}>
+              <Button icon={<PictureOutlined />} href={originalImageViewerUrl} target="_blank" rel="noreferrer">
                 查看已保存原图
               </Button>
             )}
@@ -140,7 +132,9 @@ export default function ArtworkDetailPage() {
               <span>
                 <Button
                   icon={<PictureOutlined />}
-                  onClick={() => handleOpenProtectedImage(hdImageViewUrl)}
+                  href={artwork.hdImageAvailable ? hdImageViewerUrl : undefined}
+                  target="_blank"
+                  rel="noreferrer"
                   disabled={!artwork.hdImageAvailable}
                 >
                   查看超清无损图
