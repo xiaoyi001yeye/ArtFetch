@@ -15,7 +15,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd'
-import { ArrowLeftOutlined, DollarOutlined, DownloadOutlined, LinkOutlined, PictureOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CloudOutlined, DollarOutlined, DownloadOutlined, LinkOutlined, PictureOutlined } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import * as api from '../api'
 import type { Artwork } from '../types'
@@ -52,11 +52,16 @@ export default function ArtworkDetailPage() {
   const canViewOriginal = Boolean(artwork.originalImageAvailable || artwork.originalImageSourceUrl || artwork.sourceUrl || artwork.imageUrl)
   const originalImageViewerUrl = `/artworks/${artwork.id}/images/original`
   const hdImageViewerUrl = `/artworks/${artwork.id}/images/hd`
+  const hdImageV2ViewerUrl = `/artworks/${artwork.id}/images/hd-v2`
+  const canViewHdImageV2 = Boolean(artwork.externalId || artwork.sourceUrl?.match(/\/paimai-[^/?#]+/i))
   const hdImageTooltip = artwork.hdImageAvailable
-    ? '从本地打开已下载的超清无损图'
+    ? '从 V2 canonical TOS 打开高清大图'
     : artwork.hdImageStatus === 'FAILED'
-      ? `超清无损图下载失败：${artwork.hdImageLastError || '请在任务管理中重新运行补充超清无损图任务'}`
-      : '超清无损图尚未下载，请先在任务管理中创建并运行补充超清无损图任务'
+      ? `高清大图生成失败：${artwork.hdImageLastError || '请在任务管理中重新运行补充高清大图任务'}`
+      : '高清大图尚未生成，请先在任务管理中创建并运行补充高清大图任务'
+  const hdImageV2Tooltip = canViewHdImageV2
+    ? '按 artron + artCode 读取 V2 canonical TOS 高清大图'
+    : '缺少 externalId，且 sourceUrl 中无法解析 artCode，暂不能按 V2 逻辑读取'
 
   const handleRedownloadOriginal = async () => {
     if (!artwork) return
@@ -112,7 +117,7 @@ export default function ArtworkDetailPage() {
           </Space>
         }
         extra={
-          <Space>
+          <Space wrap style={{ justifyContent: 'flex-end' }}>
             {hasPermission(permissions.artworkTransactionPriceSupplement) && (
               <Button
                 icon={<DollarOutlined />}
@@ -137,7 +142,23 @@ export default function ArtworkDetailPage() {
                   rel="noreferrer"
                   disabled={!artwork.hdImageAvailable}
                 >
-                  查看超清无损图
+                  查看高清大图
+                </Button>
+              </span>
+              </Tooltip>
+            )}
+            {hasPermission(permissions.artworkImageView) && (
+              <Tooltip title={hdImageV2Tooltip}>
+              <span>
+                <Button
+                  type="primary"
+                  icon={<CloudOutlined />}
+                  href={canViewHdImageV2 ? hdImageV2ViewerUrl : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  disabled={!canViewHdImageV2}
+                >
+                  查看高清大图 V2
                 </Button>
               </span>
               </Tooltip>
@@ -250,8 +271,8 @@ export default function ArtworkDetailPage() {
               <Descriptions.Item label="超清无损图状态">
                 {artwork.hdImageAvailable ? (
                   <Space size={4}>
-                    <Typography.Text>已保存本地</Typography.Text>
-                    <Typography.Text type="secondary">可直接查看</Typography.Text>
+                    <Typography.Text>已生成</Typography.Text>
+                    <Typography.Text type="secondary">默认从 TOS 读取</Typography.Text>
                   </Space>
                 ) : artwork.hdImageStatus === 'FAILED' ? (
                   artwork.hdImageLastError || '下载失败'

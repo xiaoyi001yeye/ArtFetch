@@ -54,14 +54,29 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+const extractErrorMessage = async (err: any) => {
+  const data = err.response?.data;
+  if (data instanceof Blob) {
+    const text = await data.text();
+    if (!text) return err.message || '请求失败';
+    try {
+      const parsed = JSON.parse(text);
+      return parsed.message || parsed.error || text;
+    } catch {
+      return text;
+    }
+  }
+  return data?.message || data?.error || err.message || '请求失败';
+};
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
     if (err.response?.status === 401) {
       clearStoredToken();
       window.dispatchEvent(new Event('artfetch:unauthorized'));
     }
-    const msg = err.response?.data?.message || err.response?.data?.error || err.message || '请求失败';
+    const msg = await extractErrorMessage(err);
     return Promise.reject(new Error(msg));
   }
 );
@@ -371,6 +386,9 @@ export const originalImageViewUrl = (id: number) =>
 
 export const hdImageViewUrl = (id: number) =>
   `/api/artworks/${id}/hd-image`;
+
+export const hdImageV2ViewUrl = (id: number) =>
+  `/api/artworks/${id}/hd-image-v2`;
 
 export const redownloadOriginalImage = (id: number) =>
   api.post<Artwork>(`/artworks/${id}/original-image/redownload`).then((r) => r.data);

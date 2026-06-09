@@ -45,9 +45,25 @@ public class AppProperties {
         private int artworkConcurrency = 4;
         /** 超清大图瓦片下载并发数 */
         private int fetchConcurrency = 96;
+        /** 第二版高清图写入方式 */
+        private HdWriteMode hdWriteMode = HdWriteMode.LEGACY_LOCAL;
+        /** 高清图读取方式 */
+        private HdDisplayMode hdDisplayMode = HdDisplayMode.TOS_CANONICAL;
         /** 新下载高清图写入方式 */
         private HdStorageMode hdStorageMode = HdStorageMode.LOCAL_ONLY;
         private Migration migration = new Migration();
+    }
+
+    public enum HdWriteMode {
+        LEGACY_LOCAL,
+        TOS_ONLY,
+        LOCAL_AND_TOS_CANONICAL
+    }
+
+    public enum HdDisplayMode {
+        LEGACY,
+        DUAL_READ,
+        TOS_CANONICAL
     }
 
     public enum HdStorageMode {

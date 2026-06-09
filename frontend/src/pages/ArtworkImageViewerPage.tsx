@@ -5,23 +5,24 @@ import { Link, useParams } from 'react-router-dom'
 import * as api from '../api'
 import type { Artwork } from '../types'
 
-type ImageKind = 'original' | 'hd'
+type ImageKind = 'original' | 'hd' | 'hd-v2'
 
 export default function ArtworkImageViewerPage() {
   const { id, kind } = useParams<{ id: string; kind: ImageKind }>()
   const artworkId = Number(id)
-  const imageKind = kind === 'hd' ? 'hd' : kind === 'original' ? 'original' : undefined
+  const imageKind = kind === 'hd-v2' ? 'hd-v2' : kind === 'hd' ? 'hd' : kind === 'original' ? 'original' : undefined
   const [artwork, setArtwork] = useState<Artwork | null>(null)
   const [imageUrl, setImageUrl] = useState<string>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
+  const [errorDetail, setErrorDetail] = useState<string>()
 
-  const imageLabel = imageKind === 'hd' ? '超清无损图' : '原图'
+  const imageLabel = imageKind === 'hd-v2' ? '高清大图 V2' : imageKind === 'hd' ? '高清大图' : '原图'
   const sourceUrl = useMemo(() => {
     if (!Number.isFinite(artworkId) || !imageKind) return undefined
-    return imageKind === 'hd'
-      ? api.hdImageViewUrl(artworkId)
-      : api.originalImageViewUrl(artworkId)
+    if (imageKind === 'hd-v2') return api.hdImageV2ViewUrl(artworkId)
+    if (imageKind === 'hd') return api.hdImageViewUrl(artworkId)
+    return api.originalImageViewUrl(artworkId)
   }, [artworkId, imageKind])
 
   useEffect(() => {
@@ -35,19 +36,38 @@ export default function ArtworkImageViewerPage() {
     let cancelled = false
     setLoading(true)
     setError(undefined)
+    setErrorDetail(undefined)
 
-    Promise.all([
+    Promise.allSettled([
       api.getArtwork(artworkId),
       api.createProtectedBlobUrl(sourceUrl),
     ])
-      .then(([artworkData, protectedUrl]) => {
-        objectUrl = protectedUrl
+      .then(([artworkResult, imageResult]) => {
+        const artworkData = artworkResult.status === 'fulfilled' ? artworkResult.value : null
+        if (artworkData && !cancelled) setArtwork(artworkData)
+
+        if (imageResult.status === 'rejected') {
+          if (!cancelled) {
+            const baseMessage = imageResult.reason?.message || '图片加载失败'
+            setError(baseMessage)
+            setErrorDetail(buildImageErrorDetail(imageKind, artworkId, artworkData))
+          }
+          return
+        }
+
+        objectUrl = imageResult.value
         if (cancelled) {
-          URL.revokeObjectURL(protectedUrl)
+          URL.revokeObjectURL(imageResult.value)
+          return
+        }
+        if (!artworkData && artworkResult.status === 'rejected') {
+          setError(artworkResult.reason?.message || '艺术品信息加载失败')
+          setErrorDetail('图片请求已返回，但艺术品详情加载失败。请刷新页面或检查详情接口。')
+          URL.revokeObjectURL(imageResult.value)
           return
         }
         setArtwork(artworkData)
-        setImageUrl(protectedUrl)
+        setImageUrl(imageResult.value)
       })
       .catch((e: any) => {
         if (!cancelled) setError(e.message || '图片加载失败')
@@ -75,6 +95,7 @@ export default function ArtworkImageViewerPage() {
       <Result
         status="warning"
         title={error || '图片加载失败'}
+        subTitle={errorDetail}
         extra={<Button icon={<ArrowLeftOutlined />} onClick={() => window.close()}>关闭</Button>}
       />
     )
@@ -96,11 +117,21 @@ export default function ArtworkImageViewerPage() {
         </Space>
       }
     >
-      {imageKind === 'hd' && artwork?.hdImageStorageType && (
+      {imageKind === 'hd-v2' && (
         <Alert
           type="info"
           showIcon
-          message={`存储位置：${artwork.hdImageStorageType === 'OBJECT' ? '对象存储' : artwork.hdImageStorageType === 'LOCAL_OBJECT' ? '本地 + 对象存储' : '本地'}`}
+          message="V2 canonical TOS 读取"
+          description="当前图片只按 sourceProvider=artron 和 artCode 计算固定 TOS 路径读取，不依赖本机磁盘路径或旧对象路径。"
+          style={{ marginBottom: 16 }}
+        />
+      )}
+      {imageKind === 'hd' && (
+        <Alert
+          type="info"
+          showIcon
+          message="V2 canonical TOS 读取"
+          description="当前默认高清图入口按 artCode 计算固定 TOS 路径读取；本地文件仅作为备份或旧逻辑回退来源。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -113,4 +144,33 @@ export default function ArtworkImageViewerPage() {
       </div>
     </Card>
   )
+}
+
+const storageTypeText = (storageType?: string) => {
+  if (storageType === 'OBJECT') return '对象存储'
+  if (storageType === 'LOCAL_OBJECT') return '本地 + 对象存储'
+  return '本地'
+}
+
+const buildImageErrorDetail = (imageKind: ImageKind | undefined, artworkId: number, artwork: Artwork | null) => {
+  if (imageKind !== 'hd') {
+    if (imageKind === 'hd-v2') {
+      const identity = artwork?.externalId || artwork?.sourceUrl || '未拿到 externalId/sourceUrl'
+      return `请确认该作品已经完成 V2 canonical TOS 升级，且生产/测试环境使用同一 TOS bucket。作品 ID：${artworkId}；身份参数：${identity}。`
+    }
+    return `请检查图片补充任务状态与服务端日志，搜索 artworkId=${artworkId}。`
+  }
+  if (!artwork) {
+    return `请检查服务端日志，搜索 artworkId=${artworkId}；重点查看 V2 canonical TOS 对象是否存在、对象存储配置是否启用。`
+  }
+  const details = [
+    `作品 ID：${artworkId}`,
+    `超清图状态：${artwork.hdImageStatus || '未知'}`,
+    `存储位置：${storageTypeText(artwork.hdImageStorageType)}`,
+    `迁移状态：${artwork.hdImageMigrationStatus || '未知'}`,
+  ]
+  if (artwork.hdImageLastError) details.push(`补图错误：${artwork.hdImageLastError}`)
+  if (artwork.hdImageMigrationLastError) details.push(`迁移错误：${artwork.hdImageMigrationLastError}`)
+  details.push(`请检查服务端日志 artworkId=${artworkId}，重点核对 V2 canonical TOS 对象、对象存储配置和补图任务错误。`)
+  return details.join('；')
 }

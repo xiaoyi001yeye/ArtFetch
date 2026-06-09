@@ -50,6 +50,8 @@ artfetch:
     batch-size: 25
     artwork-concurrency: 4
     fetch-concurrency: 96
+    hd-write-mode: ${ARTFETCH_IMAGE_HD_WRITE_MODE:LEGACY_LOCAL}
+    hd-display-mode: ${ARTFETCH_IMAGE_HD_DISPLAY_MODE:TOS_CANONICAL}
     hd-storage-mode: ${ARTFETCH_IMAGE_HD_STORAGE_MODE:LOCAL_ONLY}
     migration:
       max-concurrent-tasks: 1

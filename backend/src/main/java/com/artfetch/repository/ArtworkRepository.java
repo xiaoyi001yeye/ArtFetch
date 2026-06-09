@@ -35,13 +35,16 @@ public interface ArtworkRepository extends JpaRepository<Artwork, Long>,
               and (
                 a.hdImageStatus is null
                 or a.hdImageStatus <> :downloadedStatus
-                or a.hdImagePath is null
-                or a.hdImagePath = ''
+                or (
+                  :requiresLocalPath = true
+                  and (a.hdImagePath is null or a.hdImagePath = '')
+                )
               )
             order by a.id asc
             """)
     List<Long> findPendingHdImageIdsByTaskIdOrderByIdAsc(@Param("taskId") Long taskId,
-                                                         @Param("downloadedStatus") Artwork.HdImageStatus downloadedStatus);
+                                                         @Param("downloadedStatus") Artwork.HdImageStatus downloadedStatus,
+                                                         @Param("requiresLocalPath") boolean requiresLocalPath);
 
     @Query("""
             select a from Artwork a

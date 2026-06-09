@@ -25,6 +25,7 @@ import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -49,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class HdImageService {
 
+    private static final String CANONICAL_SOURCE_PROVIDER = "artron";
     private static final String VIEWER_URL_TEMPLATE = "https://tulu.artron.net/wap/NewHdImage/bigpic/%s";
     private static final String IMAGE_SERVER = "https://hdimages.artron.net";
     private static final Pattern JSONP_PATTERN = Pattern.compile("^[^(]+\\((.*)\\)\\s*;?\\s*$", Pattern.DOTALL);
@@ -92,7 +94,8 @@ public class HdImageService {
 
         List<Long> pendingArtworkIds = artworkRepository.findPendingHdImageIdsByTaskIdOrderByIdAsc(
                 task.getTargetTaskId(),
-                Artwork.HdImageStatus.DOWNLOADED
+                Artwork.HdImageStatus.DOWNLOADED,
+                resolveHdWriteMode() == AppProperties.HdWriteMode.LEGACY_LOCAL
         );
         int totalCount = pendingArtworkIds.size();
         int artworkConcurrency = resolveArtworkConcurrency(totalCount);
@@ -191,11 +194,25 @@ public class HdImageService {
     }
 
     public Resource loadHdImage(Long artworkId) {
+        AppProperties.HdDisplayMode displayMode = resolveHdDisplayMode();
+        if (displayMode != AppProperties.HdDisplayMode.LEGACY) {
+            try {
+                return loadCanonicalHdImage(artworkId);
+            } catch (Exception e) {
+                if (displayMode == AppProperties.HdDisplayMode.TOS_CANONICAL) {
+                    throw e;
+                }
+                log.warn("V2 canonical 高清图读取失败，按 DUAL_READ 回退旧逻辑: artworkId={}, message={}",
+                        artworkId, e.getMessage(), e);
+            }
+        }
+
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
         Artwork.HdImageStorageType storageType = artwork.getHdImageStorageType() == null
                 ? Artwork.HdImageStorageType.LOCAL
                 : artwork.getHdImageStorageType();
+        Path root = storageRoot();
         if ((storageType == Artwork.HdImageStorageType.OBJECT || storageType == Artwork.HdImageStorageType.LOCAL_OBJECT)
                 && artwork.getHdImageObjectKey() != null
                 && !artwork.getHdImageObjectKey().isBlank()) {
@@ -208,22 +225,90 @@ public class HdImageService {
                 var object = objectStorageService.loadObject(config, artwork.getHdImageObjectKey());
                 return new InputStreamResource(object.inputStream());
             } catch (Exception e) {
+                logHdImageAccessFailure("对象存储读取失败", artwork, storageType, root, null, e);
                 if (storageType == Artwork.HdImageStorageType.OBJECT) {
-                    throw new IllegalStateException("火山 TOS 高清图读取失败: " + e.getMessage(), e);
+                    throw new IllegalStateException("火山 TOS 高清图读取失败，请检查对象存储配置、Bucket、Object Key 与服务端日志 artworkId=" + artworkId + ": " + e.getMessage(), e);
                 }
-                log.warn("火山 TOS 高清图读取失败，尝试回退本地文件: artworkId={}, message={}", artworkId, e.getMessage());
+                log.warn("火山 TOS 高清图读取失败，尝试回退本地文件: artworkId={}, externalId={}, objectConfigId={}, bucket={}, objectKey={}, message={}",
+                        artworkId,
+                        artwork.getExternalId(),
+                        artwork.getHdImageObjectConfigId(),
+                        artwork.getHdImageObjectBucket(),
+                        artwork.getHdImageObjectKey(),
+                        e.getMessage());
             }
         }
 
         if (artwork.getHdImagePath() == null || artwork.getHdImagePath().isBlank()) {
-            throw new IllegalStateException("超清无损图尚未下载，请先创建并运行补充任务");
+            logHdImageAccessFailure("缺少本地文件路径", artwork, storageType, root, null, null);
+            throw new IllegalStateException("超清无损图尚未下载或未记录本地路径，请先创建并运行补充任务；服务端日志可搜索 artworkId=" + artworkId);
         }
 
-        Path path = storageRoot().resolve(artwork.getHdImagePath()).normalize();
-        if (!path.startsWith(storageRoot()) || !Files.exists(path)) {
-            throw new IllegalStateException("超清无损图文件不存在，请重新执行补充任务");
+        Path path = root.resolve(artwork.getHdImagePath()).normalize();
+        if (!path.startsWith(root)) {
+            logHdImageAccessFailure("本地文件路径越界", artwork, storageType, root, path, null);
+            throw new IllegalStateException("超清无损图本地路径异常，请检查数据库中的 hd_image_path；服务端日志可搜索 artworkId=" + artworkId);
+        }
+        if (!Files.exists(path)) {
+            logHdImageAccessFailure("本地文件不存在", artwork, storageType, root, path, null);
+            throw new IllegalStateException("超清无损图文件不存在，请检查生产容器存储挂载、artfetch.image.storage-path 和数据库 hd_image_path，或重新执行补充任务；服务端日志可搜索 artworkId=" + artworkId);
         }
         return new FileSystemResource(path);
+    }
+
+    public Resource loadCanonicalHdImage(Long artworkId) {
+        Artwork artwork = artworkRepository.findById(artworkId)
+                .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
+        String artCode = resolveArtCode(artwork);
+        if (artCode == null || artCode.isBlank()) {
+            log.warn("V2 高清大图访问失败: reason=无法解析 artCode, artworkId={}, externalId={}, sourceUrl={}",
+                    artworkId, artwork.getExternalId(), artwork.getSourceUrl());
+            throw new IllegalStateException("无法从 externalId 或 sourceUrl 解析高清大图 artCode；服务端日志可搜索 artworkId=" + artworkId);
+        }
+
+        String canonicalKey = objectStorageService.buildCanonicalObjectKey(CANONICAL_SOURCE_PROVIDER, artCode);
+        try {
+            var config = objectStorageService.activeConfigForRead();
+            var object = objectStorageService.loadObject(config, canonicalKey);
+            return new InputStreamResource(object.inputStream());
+        } catch (Exception e) {
+            log.warn("V2 高清大图 TOS 读取失败: artworkId={}, externalId={}, sourceUrl={}, artCode={}, canonicalKey={}, message={}",
+                    artworkId,
+                    artwork.getExternalId(),
+                    artwork.getSourceUrl(),
+                    artCode,
+                    canonicalKey,
+                    e.getMessage(),
+                    e);
+            throw new IllegalStateException("V2 高清大图不存在或读取失败，请确认 TOS canonical 对象已升级完成；canonicalKey="
+                    + canonicalKey + "；" + objectStorageService.describeTosError(e), e);
+        }
+    }
+
+    private void logHdImageAccessFailure(String reason,
+                                         Artwork artwork,
+                                         Artwork.HdImageStorageType storageType,
+                                         Path storageRoot,
+                                         Path resolvedPath,
+                                         Exception exception) {
+        log.warn("超清无损图访问失败: reason={}, artworkId={}, externalId={}, taskId={}, hdImageStatus={}, storageType={}, storageRoot={}, hdImagePath={}, resolvedPath={}, resolvedExists={}, objectConfigId={}, objectBucket={}, objectKey={}, migrationStatus={}, migrationLastError={}, lastError={}",
+                reason,
+                artwork.getId(),
+                artwork.getExternalId(),
+                artwork.getTask() == null ? null : artwork.getTask().getId(),
+                artwork.getHdImageStatus(),
+                storageType,
+                storageRoot,
+                artwork.getHdImagePath(),
+                resolvedPath,
+                resolvedPath == null ? null : Files.exists(resolvedPath),
+                artwork.getHdImageObjectConfigId(),
+                artwork.getHdImageObjectBucket(),
+                artwork.getHdImageObjectKey(),
+                artwork.getHdImageMigrationStatus(),
+                artwork.getHdImageMigrationLastError(),
+                artwork.getHdImageLastError(),
+                exception);
     }
 
     public MediaType resolveMediaType(Long artworkId) {
@@ -237,6 +322,10 @@ public class HdImageService {
         } catch (Exception e) {
             return MediaType.IMAGE_PNG;
         }
+    }
+
+    public MediaType resolveCanonicalMediaType(Long artworkId) {
+        return MediaType.IMAGE_PNG;
     }
 
     public String hdFilename(Long artworkId) {
@@ -299,8 +388,6 @@ public class HdImageService {
         StitchMetrics stitchMetrics = StitchMetrics.empty();
 
         try {
-            Files.createDirectories(root);
-
             stage = "fetch-option";
             long metadataStart = System.nanoTime();
             HdImageOption option = fetchHdImageOption(artCode, viewerUrl);
@@ -312,27 +399,42 @@ public class HdImageService {
             StitchResult stitchResult = stitchTiles(artCode, viewerUrl, option);
             BufferedImage stitchedImage = stitchResult.image();
             stitchMetrics = stitchResult.metrics();
+            AppProperties.HdWriteMode writeMode = resolveHdWriteMode();
+            boolean retainLocalFile = writeMode != AppProperties.HdWriteMode.TOS_ONLY;
+            String relativePath = retainLocalFile ? buildRelativePath(artwork) : null;
+            Path targetPath = relativePath == null ? null : root.resolve(relativePath).normalize();
 
-            String relativePath = buildRelativePath(artwork);
-            Path targetPath = root.resolve(relativePath).normalize();
-            Files.createDirectories(targetPath.getParent());
-
-            Path tempPath = targetPath.resolveSibling(targetPath.getFileName() + ".tmp");
-            stage = "write-png";
+            stage = retainLocalFile ? "write-png" : "encode-png";
             long fileWriteStart = System.nanoTime();
-            writePng(tempPath, stitchedImage);
-            fileWriteMs = nanosToMillis(System.nanoTime() - fileWriteStart);
-            try {
-                Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException atomicMoveError) {
-                Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            byte[] pngBytes;
+            if (retainLocalFile) {
+                Files.createDirectories(root);
+                Files.createDirectories(targetPath.getParent());
+                Path tempPath = targetPath.resolveSibling(targetPath.getFileName() + ".tmp");
+                writePng(tempPath, stitchedImage);
+                try {
+                    Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (IOException atomicMoveError) {
+                    Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+                outputBytes = Files.size(targetPath);
+                pngBytes = null;
+            } else {
+                pngBytes = encodePng(stitchedImage);
+                outputBytes = pngBytes.length;
             }
-            outputBytes = Files.size(targetPath);
+            fileWriteMs = nanosToMillis(System.nanoTime() - fileWriteStart);
 
             stage = "save-db";
             long dbSaveStart = System.nanoTime();
-            ObjectUploadMetadata objectUpload = uploadToObjectStorageIfNeeded(artwork, targetPath, relativePath);
-            artwork.setHdImagePath(relativePath);
+            ObjectUploadMetadata objectUpload = uploadCanonicalToObjectStorageIfNeeded(
+                    artwork,
+                    targetPath,
+                    pngBytes,
+                    outputBytes,
+                    writeMode
+            );
+            artwork.setHdImagePath(retainLocalFile ? relativePath : null);
             artwork.setHdImageContentType(MediaType.IMAGE_PNG_VALUE);
             artwork.setHdImageSize(outputBytes);
             artwork.setHdImageDownloadedAt(LocalDateTime.now());
@@ -474,25 +576,30 @@ public class HdImageService {
         return new HdImageOption(token, width, height, sessionCookieHeader);
     }
 
-    private ObjectUploadMetadata uploadToObjectStorageIfNeeded(Artwork artwork, Path targetPath, String relativePath) throws Exception {
-        AppProperties.HdStorageMode mode = appProperties.getImage().getHdStorageMode();
-        if (mode == null || mode == AppProperties.HdStorageMode.LOCAL_ONLY) {
+    private ObjectUploadMetadata uploadCanonicalToObjectStorageIfNeeded(Artwork artwork,
+                                                                        Path targetPath,
+                                                                        byte[] pngBytes,
+                                                                        long outputBytes,
+                                                                        AppProperties.HdWriteMode mode) throws Exception {
+        if (mode == AppProperties.HdWriteMode.LEGACY_LOCAL) {
             return ObjectUploadMetadata.localOnly();
         }
+        var config = objectStorageService.activeConfigForUpload();
+        String artCode = resolveArtCode(artwork);
+        if (artCode == null || artCode.isBlank()) {
+            throw new IllegalStateException("无法解析高清大图 canonical artCode");
+        }
+        String objectKey = objectStorageService.buildCanonicalObjectKey(CANONICAL_SOURCE_PROVIDER, artCode);
         try {
-            var config = objectStorageService.activeConfigForUpload();
-            String objectKey = objectStorageService.buildObjectKey(config, artwork);
-            HdImageObjectStorageService.UploadResult result = objectStorageService.uploadFile(config, targetPath, objectKey);
-            if (mode == AppProperties.HdStorageMode.OBJECT_ONLY) {
-                try {
-                    Files.deleteIfExists(targetPath);
-                } catch (IOException e) {
-                    log.warn("对象存储模式下删除本地高清图失败: artworkId={}, path={}, message={}",
-                            artwork.getId(), relativePath, e.getMessage());
-                }
+            HdImageObjectStorageService.UploadResult result;
+            if (targetPath == null) {
+                result = objectStorageService.uploadBytes(config, pngBytes, objectKey);
+            } else {
+                result = objectStorageService.uploadFile(config, targetPath, objectKey);
             }
+            objectStorageService.head(config, objectKey);
             return new ObjectUploadMetadata(
-                    mode == AppProperties.HdStorageMode.OBJECT_ONLY
+                    mode == AppProperties.HdWriteMode.TOS_ONLY
                             ? Artwork.HdImageStorageType.OBJECT
                             : Artwork.HdImageStorageType.LOCAL_OBJECT,
                     config.getId(),
@@ -503,20 +610,20 @@ public class HdImageService {
                     null
             );
         } catch (Exception e) {
-            if (mode == AppProperties.HdStorageMode.OBJECT_ONLY) {
-                throw e;
-            }
-            log.warn("高清图本地保存成功，但上传火山 TOS 失败: artworkId={}, message={}", artwork.getId(), e.getMessage(), e);
-            return new ObjectUploadMetadata(
-                    Artwork.HdImageStorageType.LOCAL,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    e.getMessage()
-            );
+            log.warn("高清图 canonical TOS 上传失败: artworkId={}, artCode={}, objectKey={}, mode={}, outputBytes={}, message={}",
+                    artwork.getId(), artCode, objectKey, mode, outputBytes, e.getMessage(), e);
+            throw e;
         }
+    }
+
+    private AppProperties.HdWriteMode resolveHdWriteMode() {
+        AppProperties.HdWriteMode mode = appProperties.getImage().getHdWriteMode();
+        return mode == null ? AppProperties.HdWriteMode.LEGACY_LOCAL : mode;
+    }
+
+    private AppProperties.HdDisplayMode resolveHdDisplayMode() {
+        AppProperties.HdDisplayMode mode = appProperties.getImage().getHdDisplayMode();
+        return mode == null ? AppProperties.HdDisplayMode.TOS_CANONICAL : mode;
     }
 
     private void applyObjectUpload(Artwork artwork, ObjectUploadMetadata metadata) {
@@ -983,6 +1090,15 @@ public class HdImageService {
     private void writePng(Path path, BufferedImage image) throws IOException {
         if (!ImageIO.write(image, "png", path.toFile())) {
             throw new IOException("未找到 PNG 编码器");
+        }
+    }
+
+    private byte[] encodePng(BufferedImage image) throws IOException {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (!ImageIO.write(image, "png", output)) {
+                throw new IOException("未找到 PNG 编码器");
+            }
+            return output.toByteArray();
         }
     }
 
