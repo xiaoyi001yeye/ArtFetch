@@ -13,9 +13,12 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
@@ -25,6 +28,9 @@ public class HdImageObjectStorageService {
     private static final long LARGE_FILE_THRESHOLD_BYTES = 100L * 1024L * 1024L;
     private static final long MULTIPART_PART_SIZE_BYTES = 20L * 1024L * 1024L;
     private static final int MULTIPART_TASK_NUM = 5;
+    private static final String CANONICAL_PREFIX = "artfetch/hd-images";
+    private static final String CANONICAL_VERSION = "v2";
+    private static final String CANONICAL_FILENAME = "hd-lossless.png";
 
     private final ObjectStorageConfigRepository configRepository;
     private final ObjectStorageClientFactory clientFactory;
@@ -36,6 +42,11 @@ public class HdImageObjectStorageService {
             throw new IllegalStateException("当前火山 TOS 配置未开启新图上传");
         }
         return config;
+    }
+
+    public ObjectStorageConfig activeConfigForRead() {
+        return configRepository.findByEnabledTrue()
+                .orElseThrow(() -> new IllegalStateException("尚未启用火山 TOS 对象存储配置"));
     }
 
     public ObjectStorageConfig loadConfig(Long id) {
@@ -80,6 +91,20 @@ public class HdImageObjectStorageService {
                 .setContent(inputStream);
         PutObjectOutput output = client.putObject(input);
         return new UploadResult(objectKey, output.getEtag(), size);
+    }
+
+    public CopyResult copyObject(ObjectStorageConfig sourceConfig,
+                                 String sourceObjectKey,
+                                 ObjectStorageConfig targetConfig,
+                                 String targetObjectKey) {
+        TOSV2 client = clientFactory.create(targetConfig);
+        CopyObjectV2Input input = new CopyObjectV2Input()
+                .setBucket(targetConfig.getBucket())
+                .setKey(targetObjectKey)
+                .setSrcBucket(sourceConfig.getBucket())
+                .setSrcKey(sourceObjectKey);
+        CopyObjectV2Output output = client.copyObject(input);
+        return new CopyResult(targetObjectKey, output.getEtag());
     }
 
     public StoredObject loadObject(ObjectStorageConfig config, String objectKey) {
@@ -172,6 +197,25 @@ public class HdImageObjectStorageService {
                 + "task-" + artwork.getTask().getId() + "/" + externalId + "/hd-lossless.png";
     }
 
+    public String buildCanonicalObjectKey(String sourceProvider, String normalizedArtCode) {
+        if (sourceProvider == null || sourceProvider.isBlank()) {
+            throw new IllegalArgumentException("sourceProvider 不能为空");
+        }
+        if (normalizedArtCode == null || normalizedArtCode.isBlank()) {
+            throw new IllegalArgumentException("normalizedArtCode 不能为空");
+        }
+        String source = sourceProvider.trim().replaceAll("[^A-Za-z0-9_-]", "_");
+        String artCode = normalizedArtCode.trim().replaceAll("[^A-Za-z0-9_-]", "_");
+        String hashHex = sha256Hex(source + ":" + artCode);
+        return CANONICAL_PREFIX
+                + "/" + CANONICAL_VERSION
+                + "/source/" + source
+                + "/art-code/" + hashHex.substring(0, 2)
+                + "/" + hashHex.substring(0, 4)
+                + "/" + artCode
+                + "/" + CANONICAL_FILENAME;
+    }
+
     private String normalizePrefix(String prefix) {
         if (prefix == null || prefix.isBlank()) {
             return "";
@@ -186,6 +230,15 @@ public class HdImageObjectStorageService {
         return value.isBlank() ? "" : value + "/";
     }
 
+    private String sha256Hex(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("无法计算高清大图 canonical key hash", e);
+        }
+    }
+
     private Path checkpointPath(Path file) {
         Path parent = file.toAbsolutePath().getParent();
         Path checkpointDir = parent == null ? Paths.get("checkpoint") : parent.resolve("checkpoint");
@@ -193,6 +246,9 @@ public class HdImageObjectStorageService {
     }
 
     public record UploadResult(String objectKey, String etag, long size) {
+    }
+
+    public record CopyResult(String objectKey, String etag) {
     }
 
     public record ObjectMetadata(String etag, long size) {

@@ -98,6 +98,21 @@ public class ArtworkController {
                 .body(resource);
     }
 
+    @GetMapping("/{id}/hd-image-v2")
+    @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_VIEW)
+    public ResponseEntity<Resource> viewHdImageV2(@PathVariable Long id) {
+        expertEvaluationAccessService.requireGeneralArtworkImageAccess(id);
+        Resource resource = hdImageService.loadCanonicalHdImage(id);
+        String filename = hdImageService.hdFilename(id);
+        MediaType mediaType = hdImageService.resolveCanonicalMediaType(id);
+
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename*=UTF-8''" +
+                        URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20"))
+                .body(resource);
+    }
+
     @PostMapping("/{id}/original-image/redownload")
     @SaCheckPermission(PermissionCodes.ARTWORK_IMAGE_REDOWNLOAD)
     public ResponseEntity<ArtworkDto> redownloadOriginalImage(@PathVariable Long id) {
