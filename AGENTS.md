@@ -40,6 +40,10 @@ After any code change, the updated code must be compiled and the corresponding s
   Rebuild both sides and restart both services.
 - Do not treat the task as complete until the relevant compile step and restart step have both been performed, unless the user explicitly says not to restart services.
 
+## Test Environment HD Image Rule
+
+In test environments, do **not** directly read or open full-resolution HD image streams. Avoid calling endpoints that return the HD image bytes, such as `GET /api/artworks/{id}/hd-image`, `GET /api/artworks/{id}/hd-image-v2`, or expert HD image endpoints. To verify that HD images were uploaded successfully, use metadata/info checks instead: confirm the object exists, inspect file size, object key, ETag, upload status, migration status, or other non-streaming fields. Do not use test scripts, browser automation, or manual smoke tests that repeatedly download full HD image payloads from TOS.
+
 ## Architecture
 
 ### Backend (Spring Boot 3.2, Java 17)
