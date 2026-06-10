@@ -130,8 +130,8 @@ export default function ArtworkImageViewerPage() {
         <Alert
           type="info"
           showIcon
-          message="V2 canonical TOS 读取"
-          description="当前默认高清图入口按 artCode 计算固定 TOS 路径读取；本地文件仅作为备份或旧逻辑回退来源。"
+          message="高清大图读取"
+          description="当前高清图入口按服务端 hd-display-mode 读取；TOS_CANONICAL/DUAL_READ 会优先按 artCode 查 canonical TOS，LEGACY 或回退时会使用历史本地/对象存储路径。"
           style={{ marginBottom: 16 }}
         />
       )}
@@ -161,7 +161,7 @@ const buildImageErrorDetail = (imageKind: ImageKind | undefined, artworkId: numb
     return `请检查图片补充任务状态与服务端日志，搜索 artworkId=${artworkId}。`
   }
   if (!artwork) {
-    return `请检查服务端日志，搜索 artworkId=${artworkId}；重点查看 V2 canonical TOS 对象是否存在、对象存储配置是否启用。`
+    return `请检查服务端日志，搜索 artworkId=${artworkId}；重点查看 V2 canonical TOS 对象、hd-display-mode、对象存储配置；若启用了 LEGACY/DUAL_READ 回退，再检查 artfetch.image.storage-path、容器卷挂载和数据库图片路径。`
   }
   const details = [
     `作品 ID：${artworkId}`,
@@ -171,6 +171,6 @@ const buildImageErrorDetail = (imageKind: ImageKind | undefined, artworkId: numb
   ]
   if (artwork.hdImageLastError) details.push(`补图错误：${artwork.hdImageLastError}`)
   if (artwork.hdImageMigrationLastError) details.push(`迁移错误：${artwork.hdImageMigrationLastError}`)
-  details.push(`请检查服务端日志 artworkId=${artworkId}，重点核对 V2 canonical TOS 对象、对象存储配置和补图任务错误。`)
+  details.push(`请检查服务端日志 artworkId=${artworkId}，重点核对 V2 canonical TOS 对象、hd-display-mode、对象存储配置；若服务端回退旧逻辑，再核对生产容器存储挂载、artfetch.image.storage-path 和数据库 hd_image_path。`)
   return details.join('；')
 }

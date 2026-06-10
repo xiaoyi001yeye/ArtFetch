@@ -93,6 +93,20 @@ public class HdImageObjectStorageService {
         return new UploadResult(objectKey, output.getEtag(), size);
     }
 
+    public CopyResult copyObject(ObjectStorageConfig sourceConfig,
+                                 String sourceObjectKey,
+                                 ObjectStorageConfig targetConfig,
+                                 String targetObjectKey) {
+        TOSV2 client = clientFactory.create(targetConfig);
+        CopyObjectV2Input input = new CopyObjectV2Input()
+                .setBucket(targetConfig.getBucket())
+                .setKey(targetObjectKey)
+                .setSrcBucket(sourceConfig.getBucket())
+                .setSrcKey(sourceObjectKey);
+        CopyObjectV2Output output = client.copyObject(input);
+        return new CopyResult(targetObjectKey, output.getEtag());
+    }
+
     public StoredObject loadObject(ObjectStorageConfig config, String objectKey) {
         TOSV2 client = clientFactory.create(config);
         GetObjectV2Input input = new GetObjectV2Input()
@@ -232,6 +246,9 @@ public class HdImageObjectStorageService {
     }
 
     public record UploadResult(String objectKey, String etag, long size) {
+    }
+
+    public record CopyResult(String objectKey, String etag) {
     }
 
     public record ObjectMetadata(String etag, long size) {
