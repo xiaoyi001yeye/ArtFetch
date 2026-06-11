@@ -696,6 +696,9 @@ public class TaskService {
             return targetTask.getName() + " 超清无损图补充";
         }
         if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+            if (request.getTargetTaskId() == null) {
+                return "全库成交价补充";
+            }
             SearchTask targetTask = requireTargetSearchTask(request.getTargetTaskId());
             return targetTask.getName() + " 成交价补充";
         }
@@ -709,8 +712,13 @@ public class TaskService {
     private String resolveKeyword(CreateTaskRequest request, SearchTask.TaskType taskType) {
         if (taskType == SearchTask.TaskType.ORIGINAL_IMAGE
                 || taskType == SearchTask.TaskType.HD_IMAGE
-                || taskType == SearchTask.TaskType.TRANSACTION_PRICE
                 || taskType == SearchTask.TaskType.DESCRIPTION) {
+            return requireTargetSearchTask(request.getTargetTaskId()).getKeyword();
+        }
+        if (taskType == SearchTask.TaskType.TRANSACTION_PRICE) {
+            if (request.getTargetTaskId() == null) {
+                return "全库成交价";
+            }
             return requireTargetSearchTask(request.getTargetTaskId()).getKeyword();
         }
         return resolveSearchKeywords(request).get(0);
@@ -721,6 +729,9 @@ public class TaskService {
                 && taskType != SearchTask.TaskType.HD_IMAGE
                 && taskType != SearchTask.TaskType.TRANSACTION_PRICE
                 && taskType != SearchTask.TaskType.DESCRIPTION) {
+            return null;
+        }
+        if (taskType == SearchTask.TaskType.TRANSACTION_PRICE && request.getTargetTaskId() == null) {
             return null;
         }
         return requireTargetSearchTask(request.getTargetTaskId()).getId();

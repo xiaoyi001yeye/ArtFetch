@@ -17,7 +17,7 @@ export default function ArtworkImageViewerPage() {
   const [error, setError] = useState<string>()
   const [errorDetail, setErrorDetail] = useState<string>()
 
-  const imageLabel = imageKind === 'hd-v2' ? '高清大图 V2' : imageKind === 'hd' ? '高清大图' : '原图'
+  const imageLabel = imageKind === 'hd-v2' || imageKind === 'hd' ? '高清大图' : '原图'
   const sourceUrl = useMemo(() => {
     if (!Number.isFinite(artworkId) || !imageKind) return undefined
     if (imageKind === 'hd-v2') return api.hdImageV2ViewUrl(artworkId)

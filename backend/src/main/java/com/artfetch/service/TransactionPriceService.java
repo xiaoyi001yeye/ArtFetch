@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -38,18 +39,16 @@ public class TransactionPriceService {
 
     @Transactional
     public ArtworkDto supplementSingleArtwork(Long artworkId) {
-        supplementTransactionPrice(artworkId);
+        supplementTransactionPrice(artworkId, true);
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
         return ArtworkDto.from(artwork);
     }
 
     public TransactionPriceTaskResult runTask(SearchTask task) throws InterruptedException {
-        if (task.getTargetTaskId() == null) {
-            throw new IllegalStateException("补充成交价任务缺少目标检索任务");
-        }
-
-        List<Long> pendingArtworkIds = artworkRepository.findMissingTransactionPriceIdsByTaskIdOrderByIdAsc(task.getTargetTaskId());
+        List<Long> pendingArtworkIds = task.getTargetTaskId() == null
+                ? artworkRepository.findAllIdsOrderByIdAsc()
+                : artworkRepository.findIdsByTaskIdOrderByIdAsc(task.getTargetTaskId());
         int totalCount = pendingArtworkIds.size();
         int fetchConcurrency = Math.max(1, appProperties.getPrice().getFetchConcurrency());
         int batchSize = Math.max(fetchConcurrency, appProperties.getPrice().getBatchSize());
@@ -200,16 +199,21 @@ public class TransactionPriceService {
 
     private TransactionPriceFetchResult supplementTransactionPriceWithMetrics(Long artworkId) {
         long start = System.nanoTime();
-        UpdateOutcome outcome = supplementTransactionPrice(artworkId);
+        UpdateOutcome outcome = supplementTransactionPrice(artworkId, true);
         return new TransactionPriceFetchResult(outcome, nanosToMillis(System.nanoTime() - start));
     }
 
     @Transactional
     protected UpdateOutcome supplementTransactionPrice(Long artworkId) {
+        return supplementTransactionPrice(artworkId, false);
+    }
+
+    @Transactional
+    protected UpdateOutcome supplementTransactionPrice(Long artworkId, boolean forceRefresh) {
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
 
-        if (artwork.getTransactionPrice() != null && !artwork.getTransactionPrice().isBlank()) {
+        if (!forceRefresh && artwork.getTransactionPrice() != null && !artwork.getTransactionPrice().isBlank()) {
             if (artwork.getTransactionPriceNote() != null && !artwork.getTransactionPriceNote().isBlank()) {
                 artwork.setTransactionPriceNote(null);
                 artworkRepository.save(artwork);
@@ -234,13 +238,14 @@ public class TransactionPriceService {
 
             ArtworkData data = new ArtworkData();
             initialStateExtractor.extract(doc, data);
+            boolean valuationUpdated = applyValuation(artwork, data);
 
             if (data.transactionPrice != null && !data.transactionPrice.isBlank()) {
                 artwork.setTransactionPrice(sanitizeText("transactionPrice", data.transactionPrice, artwork));
                 artwork.setTransactionPriceNote(null);
                 artworkRepository.save(artwork);
-                log.info("成交价补充成功: artworkId={}, externalId={}, transactionPrice={}",
-                        artwork.getId(), artwork.getExternalId(), artwork.getTransactionPrice());
+                log.info("成交价补充成功: artworkId={}, externalId={}, transactionPrice={}, valuationUpdated={}",
+                        artwork.getId(), artwork.getExternalId(), artwork.getTransactionPrice(), valuationUpdated);
                 return UpdateOutcome.UPDATED;
             }
 
@@ -324,6 +329,20 @@ public class TransactionPriceService {
 
     private long nanosToMillis(long nanos) {
         return Math.max(1L, nanos / 1_000_000L);
+    }
+
+    private boolean applyValuation(Artwork artwork, ArtworkData data) {
+        if (data.valuation == null || data.valuation.isBlank()) {
+            return false;
+        }
+
+        String valuation = sanitizeText("valuation", data.valuation, artwork);
+        if (Objects.equals(artwork.getValuation(), valuation)) {
+            return false;
+        }
+
+        artwork.setValuation(valuation);
+        return true;
     }
 
     private String sanitizeText(String fieldName, String value, Artwork artwork) {

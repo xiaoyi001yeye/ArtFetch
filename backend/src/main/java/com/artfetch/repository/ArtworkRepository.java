@@ -89,23 +89,43 @@ public interface ArtworkRepository extends JpaRepository<Artwork, Long>,
 
     @Query("""
             select count(a) from Artwork a
-            where a.task.id = :taskId and (a.transactionPrice is null or a.transactionPrice = '')
+            where a.task.id = :taskId and (a.transactionPrice is null or trim(a.transactionPrice) = '')
             """)
     long countMissingTransactionPriceByTaskId(@Param("taskId") Long taskId);
 
     @Query("""
             select a from Artwork a
-            where a.task.id = :taskId and (a.transactionPrice is null or a.transactionPrice = '')
+            where a.task.id = :taskId and (a.transactionPrice is null or trim(a.transactionPrice) = '')
             order by a.id asc
             """)
     Page<Artwork> findMissingTransactionPriceByTaskIdOrderByIdAsc(@Param("taskId") Long taskId, Pageable pageable);
 
     @Query("""
             select a.id from Artwork a
-            where a.task.id = :taskId and (a.transactionPrice is null or a.transactionPrice = '')
+            where a.task.id = :taskId and (a.transactionPrice is null or trim(a.transactionPrice) = '')
             order by a.id asc
             """)
     List<Long> findMissingTransactionPriceIdsByTaskIdOrderByIdAsc(@Param("taskId") Long taskId);
+
+    @Query("""
+            select a.id from Artwork a
+            where a.transactionPrice is null or trim(a.transactionPrice) = ''
+            order by a.id asc
+            """)
+    List<Long> findMissingTransactionPriceIdsOrderByIdAsc();
+
+    @Query("""
+            select a.id from Artwork a
+            where a.task.id = :taskId
+            order by a.id asc
+            """)
+    List<Long> findIdsByTaskIdOrderByIdAsc(@Param("taskId") Long taskId);
+
+    @Query("""
+            select a.id from Artwork a
+            order by a.id asc
+            """)
+    List<Long> findAllIdsOrderByIdAsc();
 
     @Query("""
             select a.id from Artwork a

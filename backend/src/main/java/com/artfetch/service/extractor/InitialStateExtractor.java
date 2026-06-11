@@ -9,6 +9,8 @@ import org.jsoup.nodes.Element;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 从页面内嵌的 window.__INITIAL_STATE__ 中提取结构化字段。
@@ -19,7 +21,8 @@ public class InitialStateExtractor implements FieldExtractor {
     private static final String STATE_PREFIX = "window.__INITIAL_STATE__=";
     private static final String STATE_END_MARKER = ";(function()";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
+    private static final Pattern LEADING_CURRENCY_PATTERN =
+            Pattern.compile("^(RMB|HKD|CNY|USD|EUR|JPY|GBP|人民币|港币)\\s+(.+)$");
     @Override
     public void extract(Document doc, ArtworkData data) {
         JsonNode pageData = extractPageData(doc);
@@ -51,7 +54,7 @@ public class InitialStateExtractor implements FieldExtractor {
                 data.dimensions
         );
         data.valuation = firstNonBlank(
-                findItemValue(detail.path("extraInfo"), "估价", "参考价", "起拍价"),
+                readValuationValue(detail.path("extraInfo")),
                 data.valuation
         );
         TransactionPriceInfo transactionPriceInfo = extractTransactionPrice(detail, pageData);
@@ -274,7 +277,7 @@ public class InitialStateExtractor implements FieldExtractor {
         String transactionPrice = firstNonBlank(
                 readPriceValue(detailItem),
                 readPriceValue(detailPrice),
-                normalizePriceText(text(picAttribute, "resultPrice")),
+                readPicAttributePriceValue(picAttribute),
                 readPriceValue(listItem)
         );
         if (transactionPrice != null) {
@@ -292,6 +295,14 @@ public class InitialStateExtractor implements FieldExtractor {
         }
 
         return new TransactionPriceInfo(null, false, "详情页未返回成交价字段");
+    }
+
+    private String readValuationValue(JsonNode extraInfo) {
+        JsonNode item = findByLabel(extraInfo, "估价", "参考价", "起拍价");
+        if (item == null) {
+            return null;
+        }
+        return readPrimaryPriceValue(item, true);
     }
 
     private JsonNode findByLabel(JsonNode items, String... labels) {
@@ -364,10 +375,148 @@ public class InitialStateExtractor implements FieldExtractor {
         if (item == null || item.isMissingNode() || item.isNull()) {
             return null;
         }
-        return firstNonBlank(
+
+        String primary = firstNonBlank(
                 normalizePriceText(text(item, "fullText")),
                 normalizePriceText(text(item, "text"))
         );
+        String primaryWithCurrency = appendPrimaryCurrency(primary, normalizePriceText(text(item, "smallText")));
+        String secondaryWithCurrency = appendTrailingCurrency(
+                normalizePriceText(text(item, "otherText")),
+                normalizePriceText(text(item, "otherSmallText"))
+        );
+        return joinPriceLines(primaryWithCurrency, secondaryWithCurrency);
+    }
+
+    private String readPrimaryPriceValue(JsonNode item, boolean prefixCurrency) {
+        if (item == null || item.isMissingNode() || item.isNull()) {
+            return null;
+        }
+        String primary = firstNonBlank(
+                normalizePriceText(text(item, "fullText")),
+                normalizePriceText(text(item, "text"))
+        );
+        primary = firstLine(primary);
+        String currency = normalizePriceText(text(item, "smallText"));
+        return prefixCurrency
+                ? prependCurrency(primary, currency)
+                : primary;
+    }
+
+    private String readPicAttributePriceValue(JsonNode picAttribute) {
+        if (picAttribute == null || picAttribute.isMissingNode() || picAttribute.isNull()) {
+            return null;
+        }
+        return appendPrimaryCurrency(
+                normalizePriceText(text(picAttribute, "resultPrice")),
+                normalizePriceText(text(picAttribute, "resultCurrency"))
+        );
+    }
+
+    private String appendPrimaryCurrency(String value, String currency) {
+        String normalized = normalizePriceLines(value);
+        if (normalized == null || currency == null || containsCurrency(normalized, currency)) {
+            return normalized;
+        }
+
+        int lineBreak = normalized.indexOf('\n');
+        if (lineBreak >= 0) {
+            String firstLine = normalized.substring(0, lineBreak).trim();
+            String rest = normalized.substring(lineBreak + 1).trim();
+            String firstLineWithCurrency = appendTrailingCurrency(firstLine, currency);
+            String restWithTrailingCurrency = moveLeadingCurrencyToEnd(rest);
+            return rest.isBlank()
+                    ? firstLineWithCurrency
+                    : restWithTrailingCurrency + "\n" + firstLineWithCurrency;
+        }
+
+        int firstSpace = normalized.indexOf(' ');
+        if (firstSpace > 0 && containsKnownCurrency(normalized)) {
+            return normalized.substring(0, firstSpace) + " " + currency + normalized.substring(firstSpace);
+        }
+        return normalized + " " + currency;
+    }
+
+    private String prependCurrency(String value, String currency) {
+        String normalized = normalizePriceLines(value);
+        if (normalized == null || currency == null || containsCurrency(normalized, currency)) {
+            return normalized;
+        }
+        return currency + " " + normalized;
+    }
+
+    private String firstLine(String value) {
+        String normalized = normalizePriceLines(value);
+        if (normalized == null) {
+            return null;
+        }
+        int lineBreak = normalized.indexOf('\n');
+        return lineBreak >= 0 ? normalized.substring(0, lineBreak).trim() : normalized;
+    }
+
+    private String appendTrailingCurrency(String value, String currency) {
+        String normalized = normalizePriceLines(value);
+        if (normalized == null || currency == null || containsCurrency(normalized, currency)) {
+            return normalized;
+        }
+        return normalized + " " + currency;
+    }
+
+    private String moveLeadingCurrencyToEnd(String value) {
+        String normalized = normalizePriceLines(value);
+        if (normalized == null) {
+            return null;
+        }
+        Matcher matcher = LEADING_CURRENCY_PATTERN.matcher(normalized);
+        if (!matcher.matches()) {
+            return normalized;
+        }
+        return matcher.group(2).trim() + " " + matcher.group(1).trim();
+    }
+
+    private String joinPriceLines(String... values) {
+        StringBuilder builder = new StringBuilder();
+        for (String value : values) {
+            String normalized = normalizePriceLines(value);
+            if (normalized == null) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append('\n');
+            }
+            builder.append(normalized);
+        }
+        return builder.isEmpty() ? null : builder.toString();
+    }
+
+    private String normalizePriceLines(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replace('\u00A0', ' ')
+                .replaceAll("[ \\t\\x0B\\f]+", " ")
+                .replaceAll(" *\\n+ *", "\n")
+                .trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private boolean containsCurrency(String value, String currency) {
+        return value != null && currency != null && value.contains(currency);
+    }
+
+    private boolean containsKnownCurrency(String value) {
+        return value != null && (value.contains("RMB")
+                || value.contains("HKD")
+                || value.contains("CNY")
+                || value.contains("USD")
+                || value.contains("EUR")
+                || value.contains("JPY")
+                || value.contains("GBP")
+                || value.contains("人民币")
+                || value.contains("港币"));
     }
 
     private boolean isLoginRequired(JsonNode item) {

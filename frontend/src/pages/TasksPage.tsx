@@ -70,6 +70,9 @@ const parseBatchKeywords = (value?: string) =>
 const isSupplementTaskType = (taskType?: TaskType) =>
   taskType != null && SUPPLEMENT_TASK_TYPES.includes(taskType)
 
+const requiresTargetTask = (taskType?: TaskType) =>
+  isSupplementTaskType(taskType) && taskType !== 'TRANSACTION_PRICE'
+
 const buildSearchTaskLabel = (task: Task) =>
   task.parentTaskName
     ? `#${task.id} ${task.parentTaskName} / ${task.keyword}`
@@ -131,7 +134,9 @@ export default function TasksPage() {
     if (values.taskType === 'SEARCH_BATCH') {
       payload.keywords = parseBatchKeywords(values.keywordsText)
     } else if (isSupplementTaskType(values.taskType)) {
-      payload.targetTaskId = values.targetTaskId
+      if (values.targetTaskId != null) {
+        payload.targetTaskId = values.targetTaskId
+      }
     } else {
       payload.keyword = values.keyword?.trim()
     }
@@ -341,7 +346,7 @@ export default function TasksPage() {
           return (
             <Space direction="vertical" size={0}>
               <Typography.Text type="secondary">
-                目标 {record.targetTaskName || (record.targetTaskId ? `任务 #${record.targetTaskId}` : '—')}
+                目标 {record.targetTaskName || (record.targetTaskId ? `任务 #${record.targetTaskId}` : '全库')}
               </Typography.Text>
               <Typography.Text type="secondary">
                 已处理 {record.currentPage || 0} / {record.totalPages || 0}
@@ -546,14 +551,16 @@ export default function TasksPage() {
           </Form.Item>
           {isSupplementTaskType(selectedTaskType) ? (
             <Form.Item
-              label="目标检索任务"
+              label={selectedTaskType === 'TRANSACTION_PRICE' ? '补充范围' : '目标检索任务'}
               name="targetTaskId"
-              rules={[{ required: true, message: '请选择目标检索任务' }]}
+              tooltip={selectedTaskType === 'TRANSACTION_PRICE' ? '不选择时会重新抓取并覆盖全库成交价' : undefined}
+              rules={requiresTargetTask(selectedTaskType) ? [{ required: true, message: '请选择目标检索任务' }] : []}
             >
               <Select
-                placeholder="选择一个已存在的检索目标任务"
+                placeholder={selectedTaskType === 'TRANSACTION_PRICE' ? '不选则刷新全库，或选择一个检索目标任务' : '选择一个已存在的检索目标任务'}
                 options={searchTaskOptions}
                 showSearch
+                allowClear={selectedTaskType === 'TRANSACTION_PRICE'}
                 optionFilterProp="label"
               />
             </Form.Item>

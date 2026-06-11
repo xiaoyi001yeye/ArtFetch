@@ -51,14 +51,8 @@ export default function ArtworkDetailPage() {
 
   const canViewOriginal = Boolean(artwork.originalImageAvailable || artwork.originalImageSourceUrl || artwork.sourceUrl || artwork.imageUrl)
   const originalImageViewerUrl = `/artworks/${artwork.id}/images/original`
-  const hdImageViewerUrl = `/artworks/${artwork.id}/images/hd`
   const hdImageV2ViewerUrl = `/artworks/${artwork.id}/images/hd-v2`
   const canViewHdImageV2 = Boolean(artwork.externalId || artwork.sourceUrl?.match(/\/paimai-[^/?#]+/i))
-  const hdImageTooltip = artwork.hdImageAvailable
-    ? '从 V2 canonical TOS 打开高清大图'
-    : artwork.hdImageStatus === 'FAILED'
-      ? `高清大图生成失败：${artwork.hdImageLastError || '请在任务管理中重新运行补充高清大图任务'}`
-      : '高清大图尚未生成，请先在任务管理中创建并运行补充高清大图任务'
   const hdImageV2Tooltip = canViewHdImageV2
     ? '按 artron + artCode 读取 V2 canonical TOS 高清大图'
     : '缺少 externalId，且 sourceUrl 中无法解析 artCode，暂不能按 V2 逻辑读取'
@@ -133,21 +127,6 @@ export default function ArtworkDetailPage() {
               </Button>
             )}
             {hasPermission(permissions.artworkImageView) && (
-              <Tooltip title={hdImageTooltip}>
-              <span>
-                <Button
-                  icon={<PictureOutlined />}
-                  href={artwork.hdImageAvailable ? hdImageViewerUrl : undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  disabled={!artwork.hdImageAvailable}
-                >
-                  查看高清大图
-                </Button>
-              </span>
-              </Tooltip>
-            )}
-            {hasPermission(permissions.artworkImageView) && (
               <Tooltip title={hdImageV2Tooltip}>
               <span>
                 <Button
@@ -158,7 +137,7 @@ export default function ArtworkDetailPage() {
                   rel="noreferrer"
                   disabled={!canViewHdImageV2}
                 >
-                  查看高清大图 V2
+                  查看高清大图
                 </Button>
               </span>
               </Tooltip>
