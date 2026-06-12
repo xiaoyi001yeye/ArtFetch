@@ -136,6 +136,10 @@ public class Artwork {
     @Column(name = "transaction_price_note", columnDefinition = "TEXT")
     private String transactionPriceNote; // 未拿到成交价时的简短原因
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "transaction_price_status")
+    private TransactionPriceStatus transactionPriceStatus = TransactionPriceStatus.MISSING;
+
     @Column(name = "auction_house")
     private String auctionHouse;    // 拍卖公司
 
@@ -188,5 +192,12 @@ public class Artwork {
         MIGRATED,
         FAILED,
         SKIPPED
+    }
+
+    public enum TransactionPriceStatus {
+        HAS_PRICE,
+        MISSING,
+        LOGIN_REQUIRED,
+        FAILED
     }
 }

@@ -523,7 +523,7 @@ public class TaskService {
             }
         }
 
-        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null, null)));
+        artworkRepository.deleteAll(artworkRepository.findAll(ArtworkSpec.search(id, null, null, null, null, null, null)));
         fetchFailureService.deleteTaskFailures(id);
         taskRepository.delete(task);
         log.info("删除任务: id={}", id);

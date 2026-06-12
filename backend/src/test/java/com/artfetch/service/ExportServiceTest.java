@@ -55,4 +55,19 @@ class ExportServiceTest {
                     .isEqualTo("款识：山居图。");
         }
     }
+
+    @Test
+    void allowsExportFilteredOnlyByTransactionPriceStatus() throws Exception {
+        Artwork artwork = new Artwork();
+        artwork.setTitle("待补充成交价作品");
+        artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.MISSING);
+        when(artworkRepository.findAll(any(Specification.class))).thenReturn(List.of(artwork));
+
+        byte[] data = exportService.exportToExcel(null, null, null, null, null, null, "MISSING");
+
+        try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(data))) {
+            assertThat(workbook.getSheet("艺术品数据").getRow(1).getCell(1).getStringCellValue())
+                    .isEqualTo("待补充成交价作品");
+        }
+    }
 }

@@ -3,6 +3,8 @@ import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import ArtFetchMark from '../components/ArtFetchMark'
 import { useAuth } from '../auth/AuthContext'
+import { permissions } from '../auth/permissions'
+import { shouldUseMobileDataView } from '../mobileView'
 
 export default function LoginPage() {
   const { user, login } = useAuth()
@@ -16,9 +18,14 @@ export default function LoginPage() {
 
   const handleFinish = async (values: { username: string; password: string }) => {
     try {
-      await login(values.username, values.password)
+      const current = await login(values.username, values.password)
       message.success('登录成功')
-      navigate(from, { replace: true })
+      const target = shouldUseMobileDataView()
+        && current.permissions.includes(permissions.artworkView)
+        && (from === '/' || from === '/login')
+        ? '/m/artworks'
+        : from
+      navigate(target, { replace: true })
     } catch (e: any) {
       message.error(e.message)
     }

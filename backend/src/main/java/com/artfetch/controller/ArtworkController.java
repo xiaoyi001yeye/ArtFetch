@@ -49,12 +49,14 @@ public class ArtworkController {
             @RequestParam(required = false) String auctionDate,
             @RequestParam(required = false) String lotNumber,
             @RequestParam(required = false) String hdImageSyncStatus,
+            @RequestParam(required = false) String transactionPriceStatus,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         var artworkPage = artworkRepository.findAll(
                 ArtworkSpec.search(taskId, blankToNull(keyword), blankToNull(artist),
-                        blankToNull(auctionDate), blankToNull(lotNumber), blankToNull(hdImageSyncStatus)),
+                        blankToNull(auctionDate), blankToNull(lotNumber), blankToNull(hdImageSyncStatus),
+                        blankToNull(transactionPriceStatus)),
                 PageRequest.of(page, size)
         );
         return ResponseEntity.ok(PageResult.of(artworkPage, ArtworkDto::from));
@@ -139,11 +141,19 @@ public class ArtworkController {
             @RequestParam(required = false) String artist,
             @RequestParam(required = false) String auctionDate,
             @RequestParam(required = false) String lotNumber,
-            @RequestParam(required = false) String hdImageSyncStatus) throws IOException {
+            @RequestParam(required = false) String hdImageSyncStatus,
+            @RequestParam(required = false) String transactionPriceStatus) throws IOException {
 
-        byte[] data = exportService.exportToExcel(taskId, blankToNull(keyword), blankToNull(artist),
-                blankToNull(auctionDate), blankToNull(lotNumber), blankToNull(hdImageSyncStatus));
-        auditLogService.recordSuccess("artwork.export", "ARTWORK", null, "导出艺术品数据");
+        byte[] data;
+        try {
+            data = exportService.exportToExcel(taskId, blankToNull(keyword), blankToNull(artist),
+                    blankToNull(auctionDate), blankToNull(lotNumber), blankToNull(hdImageSyncStatus),
+                    blankToNull(transactionPriceStatus));
+            auditLogService.recordSuccess("artwork.export", "ARTWORK", null, "导出艺术品数据");
+        } catch (IOException | RuntimeException e) {
+            auditLogService.recordFailure("artwork.export", "ARTWORK", null, "导出艺术品数据失败", e);
+            throw e;
+        }
 
         String filename = "artworks_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".xlsx";
         String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");

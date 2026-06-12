@@ -11,7 +11,8 @@ public class ArtworkSpec {
 
     public static Specification<Artwork> search(Long taskId, String keyword, String artist,
                                                 String auctionDate, String lotNumber,
-                                                String hdImageSyncStatus) {
+                                                String hdImageSyncStatus,
+                                                String transactionPriceStatus) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -22,7 +23,8 @@ public class ArtworkSpec {
                 String pattern = "%" + keyword.toLowerCase() + "%";
                 predicates.add(cb.or(
                         cb.like(cb.lower(root.get("title")), pattern),
-                        cb.like(cb.lower(root.get("artist")), pattern)
+                        cb.like(cb.lower(root.get("artist")), pattern),
+                        cb.like(cb.lower(root.get("lotNumber")), pattern)
                 ));
             }
             if (artist != null && !artist.isBlank()) {
@@ -57,6 +59,20 @@ public class ArtworkSpec {
                                             cb.notLike(root.get("hdImageLastError"), "%没有观看权限%")
                                     )
                             ));
+                    default -> {
+                    }
+                }
+            }
+            if (transactionPriceStatus != null && !transactionPriceStatus.isBlank()) {
+                switch (transactionPriceStatus.trim().toUpperCase()) {
+                    case "HAS_PRICE" ->
+                            predicates.add(cb.equal(root.get("transactionPriceStatus"), Artwork.TransactionPriceStatus.HAS_PRICE));
+                    case "MISSING" ->
+                            predicates.add(cb.equal(root.get("transactionPriceStatus"), Artwork.TransactionPriceStatus.MISSING));
+                    case "LOGIN_REQUIRED" ->
+                            predicates.add(cb.equal(root.get("transactionPriceStatus"), Artwork.TransactionPriceStatus.LOGIN_REQUIRED));
+                    case "FAILED" ->
+                            predicates.add(cb.equal(root.get("transactionPriceStatus"), Artwork.TransactionPriceStatus.FAILED));
                     default -> {
                     }
                 }

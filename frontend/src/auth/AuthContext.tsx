@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { Spin } from 'antd'
 import * as api from '../api'
 import type { CurrentUser } from '../types'
+import { clearStoredViewMode } from '../mobileView'
 
 interface AuthContextValue {
   user: CurrentUser | null
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       api.clearStoredToken()
+      clearStoredViewMode()
       setUser(null)
     }
   }, [])

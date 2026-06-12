@@ -1,5 +1,6 @@
 export type TaskType = 'SEARCH' | 'SEARCH_BATCH' | 'ORIGINAL_IMAGE' | 'HD_IMAGE' | 'TRANSACTION_PRICE' | 'DESCRIPTION';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type TransactionPriceStatus = 'HAS_PRICE' | 'MISSING' | 'LOGIN_REQUIRED' | 'FAILED';
 
 export interface Task {
   id: number;
@@ -47,6 +48,7 @@ export interface Artwork {
   valuation?: string;      // 估价
   transactionPrice?: string; // 成交价
   transactionPriceNote?: string; // 未拿到成交价时的原因
+  transactionPriceStatus?: TransactionPriceStatus;
   auctionHouse?: string;   // 拍卖公司
   auctionName?: string;    // 拍卖会
   auctionSession?: string; // 拍卖专场

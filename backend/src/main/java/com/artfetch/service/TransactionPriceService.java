@@ -1,6 +1,7 @@
 package com.artfetch.service;
 
 import com.artfetch.config.AppProperties;
+import com.artfetch.auth.service.AuditLogService;
 import com.artfetch.dto.ArtworkDto;
 import com.artfetch.entity.Artwork;
 import com.artfetch.entity.SearchTask;
@@ -9,8 +10,8 @@ import com.artfetch.repository.SearchTaskRepository;
 import com.artfetch.service.extractor.ArtworkData;
 import com.artfetch.service.extractor.InitialStateExtractor;
 import com.artfetch.util.TextSanitizer;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
@@ -28,20 +29,45 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransactionPriceService {
 
     private final ArtworkRepository artworkRepository;
     private final SearchTaskRepository taskRepository;
     private final AppProperties appProperties;
     private final ArtronRequestSupport artronRequestSupport;
+    private final AuditLogService auditLogService;
     private final InitialStateExtractor initialStateExtractor = new InitialStateExtractor();
+
+    @Autowired
+    public TransactionPriceService(ArtworkRepository artworkRepository,
+                                   SearchTaskRepository taskRepository,
+                                   AppProperties appProperties,
+                                   ArtronRequestSupport artronRequestSupport,
+                                   AuditLogService auditLogService) {
+        this.artworkRepository = artworkRepository;
+        this.taskRepository = taskRepository;
+        this.appProperties = appProperties;
+        this.artronRequestSupport = artronRequestSupport;
+        this.auditLogService = auditLogService;
+    }
+
+    public TransactionPriceService(ArtworkRepository artworkRepository,
+                                   SearchTaskRepository taskRepository,
+                                   AppProperties appProperties,
+                                   ArtronRequestSupport artronRequestSupport) {
+        this.artworkRepository = artworkRepository;
+        this.taskRepository = taskRepository;
+        this.appProperties = appProperties;
+        this.artronRequestSupport = artronRequestSupport;
+        this.auditLogService = null;
+    }
 
     @Transactional
     public ArtworkDto supplementSingleArtwork(Long artworkId) {
-        supplementTransactionPrice(artworkId, true);
+        UpdateOutcome outcome = supplementTransactionPrice(artworkId, true);
         Artwork artwork = artworkRepository.findById(artworkId)
                 .orElseThrow(() -> new IllegalArgumentException("艺术品不存在: " + artworkId));
+        recordSingleSupplementAudit(artwork, outcome);
         return ArtworkDto.from(artwork);
     }
 
@@ -216,12 +242,14 @@ public class TransactionPriceService {
         if (!forceRefresh && artwork.getTransactionPrice() != null && !artwork.getTransactionPrice().isBlank()) {
             if (artwork.getTransactionPriceNote() != null && !artwork.getTransactionPriceNote().isBlank()) {
                 artwork.setTransactionPriceNote(null);
-                artworkRepository.save(artwork);
             }
+            artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.HAS_PRICE);
+            artworkRepository.save(artwork);
             return UpdateOutcome.UPDATED;
         }
         if (artwork.getSourceUrl() == null || artwork.getSourceUrl().isBlank()) {
             artwork.setTransactionPriceNote("缺少详情页地址");
+            artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.FAILED);
             artworkRepository.save(artwork);
             log.warn("成交价补充失败: artworkId={}, externalId={}, reason=缺少详情页地址",
                     artwork.getId(), artwork.getExternalId());
@@ -243,6 +271,7 @@ public class TransactionPriceService {
             if (data.transactionPrice != null && !data.transactionPrice.isBlank()) {
                 artwork.setTransactionPrice(sanitizeText("transactionPrice", data.transactionPrice, artwork));
                 artwork.setTransactionPriceNote(null);
+                artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.HAS_PRICE);
                 artworkRepository.save(artwork);
                 log.info("成交价补充成功: artworkId={}, externalId={}, transactionPrice={}, valuationUpdated={}",
                         artwork.getId(), artwork.getExternalId(), artwork.getTransactionPrice(), valuationUpdated);
@@ -254,6 +283,7 @@ public class TransactionPriceService {
                         ? "需要登录（已配置Cookie，可能已失效）"
                         : "需要登录（未配置Cookie）";
                 artwork.setTransactionPriceNote(sanitizeText("transactionPriceNote", "需要登录", artwork));
+                artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.LOGIN_REQUIRED);
                 artworkRepository.save(artwork);
                 log.warn("成交价补充未完成: artworkId={}, externalId={}, reason={}, sourceUrl={}",
                         artwork.getId(), artwork.getExternalId(), reason, artwork.getSourceUrl());
@@ -262,6 +292,7 @@ public class TransactionPriceService {
 
             String note = TransactionPriceNoteHelper.normalize(data.transactionPriceMessage);
             artwork.setTransactionPriceNote(sanitizeText("transactionPriceNote", note != null ? note : "页面未提供", artwork));
+            artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.MISSING);
             artworkRepository.save(artwork);
             log.warn("成交价补充未完成: artworkId={}, externalId={}, reason={}, sourceUrl={}",
                     artwork.getId(),
@@ -271,11 +302,46 @@ public class TransactionPriceService {
             return UpdateOutcome.MISSING;
         } catch (Exception e) {
             artwork.setTransactionPriceNote(sanitizeText("transactionPriceNote", "抓取失败", artwork));
+            artwork.setTransactionPriceStatus(Artwork.TransactionPriceStatus.FAILED);
             artworkRepository.save(artwork);
             log.warn("成交价补充失败: artworkId={}, externalId={}, sourceUrl={}, message={}",
                     artwork.getId(), artwork.getExternalId(), artwork.getSourceUrl(), e.getMessage(), e);
             return UpdateOutcome.FAILED;
         }
+    }
+
+    private void recordSingleSupplementAudit(Artwork artwork, UpdateOutcome outcome) {
+        if (auditLogService == null) {
+            return;
+        }
+        String resourceId = String.valueOf(artwork.getId());
+        String title = artwork.getTitle() == null ? "" : artwork.getTitle();
+        switch (outcome) {
+            case UPDATED -> auditLogService.recordSuccess(
+                    "artwork.transaction-price.supplement",
+                    "ARTWORK",
+                    resourceId,
+                    "补充成交价成功，title=" + title + "，transactionPrice=" + artwork.getTransactionPrice()
+            );
+            case LOGIN_REQUIRED, MISSING -> auditLogService.recordSuccess(
+                    "artwork.transaction-price.supplement",
+                    "ARTWORK",
+                    resourceId,
+                    "补充成交价完成但结果为空，title=" + title + "，status=" + outcome.name()
+                            + "，note=" + nullToEmpty(artwork.getTransactionPriceNote())
+            );
+            case FAILED -> auditLogService.recordFailure(
+                    "artwork.transaction-price.supplement",
+                    "ARTWORK",
+                    resourceId,
+                    "补充成交价失败，title=" + title + "，note=" + nullToEmpty(artwork.getTransactionPriceNote()),
+                    new IllegalStateException(nullToEmpty(artwork.getTransactionPriceNote()))
+            );
+        }
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     @Transactional

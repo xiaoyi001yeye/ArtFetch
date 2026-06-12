@@ -1,11 +1,14 @@
 package com.artfetch.service;
 
+import com.artfetch.auth.service.AuditLogService;
 import com.artfetch.config.AppProperties;
 import com.artfetch.dto.ArtworkDto;
 import com.artfetch.entity.Artwork;
 import com.artfetch.entity.SearchTask;
 import com.artfetch.repository.ArtworkRepository;
 import com.artfetch.repository.SearchTaskRepository;
+import com.volcengine.tos.TosClientException;
+import com.volcengine.tos.TosServerException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -61,6 +64,7 @@ public class HdImageService {
     private final AppProperties appProperties;
     private final ArtronRequestSupport artronRequestSupport;
     private final HdImageObjectStorageService objectStorageService;
+    private final AuditLogService auditLogService;
     private ExecutorService tileExecutor;
 
     @PostConstruct
@@ -263,6 +267,7 @@ public class HdImageService {
         if (artCode == null || artCode.isBlank()) {
             log.warn("V2 高清大图访问失败: reason=无法解析 artCode, artworkId={}, externalId={}, sourceUrl={}",
                     artworkId, artwork.getExternalId(), artwork.getSourceUrl());
+            recordHdViewFailure(artwork, "MISSING_ART_CODE", "无法从 externalId 或 sourceUrl 解析高清大图 artCode", null);
             throw new IllegalStateException("无法从 externalId 或 sourceUrl 解析高清大图 artCode；服务端日志可搜索 artworkId=" + artworkId);
         }
 
@@ -270,8 +275,15 @@ public class HdImageService {
         try {
             var config = objectStorageService.activeConfigForRead();
             var object = objectStorageService.loadObject(config, canonicalKey);
+            auditLogService.recordSuccess(
+                    "artwork.image.hd.view",
+                    "ARTWORK",
+                    String.valueOf(artworkId),
+                    "查看高清大图成功，imageVersion=hd-v2，title=" + nullToEmpty(artwork.getTitle())
+            );
             return new InputStreamResource(object.inputStream());
         } catch (Exception e) {
+            String reasonCode = resolveCanonicalHdFailureReason(e);
             log.warn("V2 高清大图 TOS 读取失败: artworkId={}, externalId={}, sourceUrl={}, artCode={}, canonicalKey={}, message={}",
                     artworkId,
                     artwork.getExternalId(),
@@ -280,9 +292,48 @@ public class HdImageService {
                     canonicalKey,
                     e.getMessage(),
                     e);
+            recordHdViewFailure(artwork, reasonCode, "V2 高清大图不存在或读取失败", e);
             throw new IllegalStateException("V2 高清大图不存在或读取失败，请确认 TOS canonical 对象已升级完成；canonicalKey="
                     + canonicalKey + "；" + objectStorageService.describeTosError(e), e);
         }
+    }
+
+    private void recordHdViewFailure(Artwork artwork, String reasonCode, String description, Exception e) {
+        auditLogService.recordFailure(
+                "artwork.image.hd.view",
+                "ARTWORK",
+                String.valueOf(artwork.getId()),
+                "查看高清大图失败，imageVersion=hd-v2，reasonCode=" + reasonCode
+                        + "，title=" + nullToEmpty(artwork.getTitle())
+                        + "，description=" + description,
+                e == null ? new IllegalStateException(reasonCode) : e
+        );
+    }
+
+    private String resolveCanonicalHdFailureReason(Exception e) {
+        Throwable current = e;
+        while (current != null) {
+            if (current instanceof TosServerException serverException) {
+                return serverException.getStatusCode() == 404 ? "TOS_OBJECT_NOT_FOUND" : "TOS_READ_FAILED";
+            }
+            if (current instanceof TosClientException) {
+                String message = current.getMessage();
+                return message != null && message.toLowerCase().contains("timeout") ? "TIMEOUT" : "TOS_READ_FAILED";
+            }
+            current = current.getCause();
+        }
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        if (message.contains("不存在") || message.contains("not found") || message.contains("404")) {
+            return "TOS_OBJECT_NOT_FOUND";
+        }
+        if (message.contains("timeout") || message.contains("timed out") || message.contains("超时")) {
+            return "TIMEOUT";
+        }
+        return "UNKNOWN_ERROR";
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private void logHdImageAccessFailure(String reason,

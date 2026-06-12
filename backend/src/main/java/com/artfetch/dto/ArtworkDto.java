@@ -34,6 +34,7 @@ public class ArtworkDto {
     private String valuation;
     private String transactionPrice;
     private String transactionPriceNote;
+    private String transactionPriceStatus;
     private String auctionHouse;
     private String auctionName;
     private String auctionSession;
@@ -80,6 +81,7 @@ public class ArtworkDto {
         dto.setValuation(artwork.getValuation());
         dto.setTransactionPrice(artwork.getTransactionPrice());
         dto.setTransactionPriceNote(artwork.getTransactionPriceNote());
+        dto.setTransactionPriceStatus(resolveTransactionPriceStatus(artwork).name());
         dto.setAuctionHouse(artwork.getAuctionHouse());
         dto.setAuctionName(artwork.getAuctionName());
         dto.setAuctionSession(artwork.getAuctionSession());
@@ -89,5 +91,20 @@ public class ArtworkDto {
         dto.setPreviewLocation(artwork.getPreviewLocation());
         dto.setCreatedAt(artwork.getCreatedAt());
         return dto;
+    }
+
+    private static Artwork.TransactionPriceStatus resolveTransactionPriceStatus(Artwork artwork) {
+        Artwork.TransactionPriceStatus storedStatus = artwork.getTransactionPriceStatus();
+        if (artwork.getTransactionPrice() != null && !artwork.getTransactionPrice().isBlank()) {
+            return Artwork.TransactionPriceStatus.HAS_PRICE;
+        }
+        String note = artwork.getTransactionPriceNote();
+        if (note != null && note.contains("需要登录")) {
+            return Artwork.TransactionPriceStatus.LOGIN_REQUIRED;
+        }
+        if (note != null && (note.contains("失败") || note.contains("缺少详情页地址") || note.contains("抓取失败"))) {
+            return Artwork.TransactionPriceStatus.FAILED;
+        }
+        return storedStatus == null ? Artwork.TransactionPriceStatus.MISSING : storedStatus;
     }
 }

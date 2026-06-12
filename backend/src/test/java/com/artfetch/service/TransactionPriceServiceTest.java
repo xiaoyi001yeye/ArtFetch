@@ -64,10 +64,87 @@ class TransactionPriceServiceTest {
             assertThat(updated.getValuation()).isEqualTo("HKD 2,600,000-4,000,000");
             assertThat(updated.getTransactionPrice()).isEqualTo("2,894,203 RMB\n3,302,000 HKD");
             assertThat(updated.getTransactionPriceNote()).isNull();
+            assertThat(updated.getTransactionPriceStatus()).isEqualTo("HAS_PRICE");
+            assertThat(artwork.getTransactionPriceStatus()).isEqualTo(Artwork.TransactionPriceStatus.HAS_PRICE);
             verify(artworkRepository).save(artwork);
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void supplementSingleArtworkMarksLoginRequiredWhenPriceIsMasked() throws Exception {
+        String html = """
+                <html><body><script>
+                window.__INITIAL_STATE__={"pageProDetail":{"data":{
+                  "detail":{"extraInfo":[
+                    {"type":"price","label":"成交价","text":"","smallText":"",
+                     "loginText":"请登录后查看","fullText":"","nonMemberText":"****","needMember":1}
+                  ]},
+                  "pc_extra_info":[],
+                  "picAttribute":{}
+                }}};
+                </script></body></html>
+                """;
+
+        HttpServer server = startServer(html);
+        try {
+            Artwork artwork = artwork("http://127.0.0.1:" + server.getAddress().getPort() + "/detail");
+            when(artworkRepository.findById(1L)).thenReturn(Optional.of(artwork));
+
+            ArtworkDto updated = service.supplementSingleArtwork(1L);
+
+            assertThat(updated.getTransactionPrice()).isNull();
+            assertThat(updated.getTransactionPriceNote()).isEqualTo("需要登录");
+            assertThat(updated.getTransactionPriceStatus()).isEqualTo("LOGIN_REQUIRED");
+            assertThat(artwork.getTransactionPriceStatus()).isEqualTo(Artwork.TransactionPriceStatus.LOGIN_REQUIRED);
+            verify(artworkRepository).save(artwork);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void supplementSingleArtworkMarksMissingWhenDetailHasNoPriceField() throws Exception {
+        String html = """
+                <html><body><script>
+                window.__INITIAL_STATE__={"pageProDetail":{"data":{
+                  "detail":{"extraInfo":[]},
+                  "pc_extra_info":[],
+                  "picAttribute":{}
+                }}};
+                </script></body></html>
+                """;
+
+        HttpServer server = startServer(html);
+        try {
+            Artwork artwork = artwork("http://127.0.0.1:" + server.getAddress().getPort() + "/detail");
+            when(artworkRepository.findById(1L)).thenReturn(Optional.of(artwork));
+
+            ArtworkDto updated = service.supplementSingleArtwork(1L);
+
+            assertThat(updated.getTransactionPrice()).isNull();
+            assertThat(updated.getTransactionPriceNote()).isEqualTo("页面未提供");
+            assertThat(updated.getTransactionPriceStatus()).isEqualTo("MISSING");
+            assertThat(artwork.getTransactionPriceStatus()).isEqualTo(Artwork.TransactionPriceStatus.MISSING);
+            verify(artworkRepository).save(artwork);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void supplementSingleArtworkMarksFailedWhenSourceUrlIsMissing() {
+        Artwork artwork = artwork(null);
+        when(artworkRepository.findById(1L)).thenReturn(Optional.of(artwork));
+
+        ArtworkDto updated = service.supplementSingleArtwork(1L);
+
+        assertThat(updated.getTransactionPrice()).isNull();
+        assertThat(updated.getTransactionPriceNote()).isEqualTo("缺少详情页地址");
+        assertThat(updated.getTransactionPriceStatus()).isEqualTo("FAILED");
+        assertThat(artwork.getTransactionPriceStatus()).isEqualTo(Artwork.TransactionPriceStatus.FAILED);
+        verify(artworkRepository).save(artwork);
     }
 
     private HttpServer startServer(String html) throws IOException {

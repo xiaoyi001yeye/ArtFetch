@@ -47,6 +47,7 @@ public class SchemaMaintenanceService {
 
         alignHistoricalTimestamps();
         ensureArtworkDescriptionSchema();
+        ensureArtworkTransactionPriceSchema();
         ensureObjectStorageSchema();
 
         int removedDuplicates = jdbcTemplate.update("""
@@ -78,6 +79,26 @@ public class SchemaMaintenanceService {
 
     private void ensureArtworkDescriptionSchema() {
         jdbcTemplate.execute("alter table artworks add column if not exists description text");
+    }
+
+    private void ensureArtworkTransactionPriceSchema() {
+        jdbcTemplate.execute("alter table artworks add column if not exists transaction_price_status varchar(30) not null default 'MISSING'");
+        jdbcTemplate.execute("""
+                update artworks
+                set transaction_price_status = case
+                    when transaction_price is not null and btrim(transaction_price) <> '' then 'HAS_PRICE'
+                    when transaction_price_note is not null and transaction_price_note like '%需要登录%' then 'LOGIN_REQUIRED'
+                    when transaction_price_note is not null and (
+                        transaction_price_note like '%失败%'
+                        or transaction_price_note like '%缺少详情页地址%'
+                        or transaction_price_note like '%抓取失败%'
+                    ) then 'FAILED'
+                    else 'MISSING'
+                end
+                where transaction_price_status is null
+                   or transaction_price_status = 'MISSING'
+                """);
+        jdbcTemplate.execute("create index if not exists idx_artworks_transaction_price_status on artworks (transaction_price_status)");
     }
 
     private void ensureObjectStorageSchema() {

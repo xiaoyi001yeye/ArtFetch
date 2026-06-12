@@ -31,6 +31,7 @@ import type {
   PageResult,
   Task,
   TaskType,
+  TransactionPriceStatus,
   UserStatus,
 } from '../types';
 
@@ -371,6 +372,7 @@ export interface ArtworkQuery {
   auctionDate?: string;
   lotNumber?: string;
   hdImageSyncStatus?: HdImageSyncStatus;
+  transactionPriceStatus?: TransactionPriceStatus;
   page?: number;
   size?: number;
 }
@@ -407,6 +409,7 @@ export const exportArtworksUrl = (query: Omit<ArtworkQuery, 'page' | 'size'>) =>
   if (query.auctionDate) params.set('auctionDate', query.auctionDate);
   if (query.lotNumber) params.set('lotNumber', query.lotNumber);
   if (query.hdImageSyncStatus) params.set('hdImageSyncStatus', query.hdImageSyncStatus);
+  if (query.transactionPriceStatus) params.set('transactionPriceStatus', query.transactionPriceStatus);
   return `/api/artworks/export?${params.toString()}`;
 };
 

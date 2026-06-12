@@ -34,10 +34,12 @@ import EvaluationTemplatesPage from './pages/evaluation/EvaluationTemplatesPage'
 import HdImageMigrationsPage from './pages/HdImageMigrationsPage'
 import ObjectStorageSettingsPage from './pages/settings/ObjectStorageSettingsPage'
 import ExpertMobileRoutes from './pages/expert/ExpertMobileRoutes'
+import MobileRoutes from './pages/mobile/MobileRoutes'
 import ArtFetchMark from './components/ArtFetchMark'
 import { RequireAuth } from './auth/RequireAuth'
 import { useAuth } from './auth/AuthContext'
 import { permissions } from './auth/permissions'
+import { shouldUseMobileDataView } from './mobileView'
 import * as api from './api'
 
 const { Header, Content, Footer } = Layout
@@ -107,6 +109,7 @@ export default function App() {
   ].filter(Boolean) as any[], [hasPermission])
 
   const defaultPath = useMemo(() => {
+    if (hasPermission(permissions.artworkView) && shouldUseMobileDataView()) return '/m/artworks'
     if (hasPermission(permissions.taskView)) return '/tasks'
     if (hasPermission(permissions.artworkView)) return '/artworks'
     if (hasPermission(permissions.hdImageMigrationView)) return '/hd-image-migrations'
@@ -134,6 +137,10 @@ export default function App() {
     if (location.pathname.startsWith('/audit-logs')) return 'audit-logs'
     return 'tasks'
   }, [location.pathname])
+
+  if (location.pathname.startsWith('/m')) {
+    return <MobileRoutes />
+  }
 
   if (location.pathname.startsWith('/expert')) {
     return <ExpertMobileRoutes />

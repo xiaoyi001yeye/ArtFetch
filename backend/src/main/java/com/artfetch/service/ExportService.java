@@ -29,12 +29,19 @@ public class ExportService {
     public byte[] exportToExcel(Long taskId, String keyword, String artist,
                                 String auctionDate, String lotNumber,
                                 String hdImageSyncStatus) throws IOException {
-        if (!hasFilter(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus)) {
+        return exportToExcel(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus, null);
+    }
+
+    public byte[] exportToExcel(Long taskId, String keyword, String artist,
+                                String auctionDate, String lotNumber,
+                                String hdImageSyncStatus,
+                                String transactionPriceStatus) throws IOException {
+        if (!hasFilter(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus, transactionPriceStatus)) {
             throw new IllegalArgumentException("请至少选择一个筛选条件后再导出");
         }
 
         List<Artwork> artworks = artworkRepository.findAll(
-                ArtworkSpec.search(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus));
+                ArtworkSpec.search(taskId, keyword, artist, auctionDate, lotNumber, hdImageSyncStatus, transactionPriceStatus));
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("艺术品数据");
@@ -116,13 +123,14 @@ public class ExportService {
     }
 
     private boolean hasFilter(Long taskId, String keyword, String artist, String auctionDate,
-                              String lotNumber, String hdImageSyncStatus) {
+                              String lotNumber, String hdImageSyncStatus, String transactionPriceStatus) {
         return taskId != null
                 || hasText(keyword)
                 || hasText(artist)
                 || hasText(auctionDate)
                 || hasText(lotNumber)
-                || hasText(hdImageSyncStatus);
+                || hasText(hdImageSyncStatus)
+                || hasText(transactionPriceStatus);
     }
 
     private boolean hasText(String value) {
