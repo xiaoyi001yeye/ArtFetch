@@ -49,6 +49,7 @@ const hdStatusTag = (artwork: Artwork) => {
 const filterText = (query: api.ArtworkQuery) => {
   const parts: string[] = []
   if (query.taskId) parts.push('已按来源范围筛选')
+  if (query.keyword) parts.push(`关键词=${query.keyword}`)
   if (query.artist) parts.push(`艺术家=${query.artist}`)
   if (query.lotNumber) parts.push(`编号=${query.lotNumber}`)
   if (query.auctionDate) parts.push(`拍卖日期=${query.auctionDate}`)
@@ -116,8 +117,8 @@ export default function MobileArtworksPage() {
     setSearchParams(next)
   }
 
-  const handleSearch = () => {
-    updateParams({ keyword: searchValue.trim() || undefined, page: 1 })
+  const handleSearch = (value = searchValue) => {
+    updateParams({ keyword: value.trim() || undefined, page: 1 })
   }
 
   const handleFilters = (values: any) => {
@@ -173,14 +174,22 @@ export default function MobileArtworksPage() {
   return (
     <MobileDataLayout title="艺术品数据">
       <div className="mobile-data-toolbar">
-        <Input
+        <Input.Search
           value={searchValue}
           allowClear
+          enterButton="搜索"
+          loading={loading}
           size="large"
           prefix={<SearchOutlined />}
-          placeholder="搜索标题 / 艺术家 / 编号"
+          placeholder="搜索标题、艺术家或编号"
           onChange={(e) => setSearchValue(e.target.value)}
-          onPressEnter={handleSearch}
+          onSearch={(value, _event, info) => {
+            if (info?.source === 'clear') {
+              updateParams({ keyword: undefined, page: 1 })
+              return
+            }
+            handleSearch(value)
+          }}
         />
         <div className="mobile-data-toolbar-actions">
           <Button icon={<FilterOutlined />} onClick={() => setDrawerOpen(true)}>筛选</Button>
