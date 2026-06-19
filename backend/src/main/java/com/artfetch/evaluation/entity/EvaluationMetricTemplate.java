@@ -18,6 +18,9 @@ public class EvaluationMetricTemplate {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(length = 100, unique = true)
+    private String code;
+
     @Column(nullable = false, length = 150)
     private String name;
 
@@ -26,6 +29,9 @@ public class EvaluationMetricTemplate {
 
     @Column(nullable = false)
     private boolean enabled = true;
+
+    @Column(name = "built_in", nullable = false)
+    private boolean builtIn = false;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

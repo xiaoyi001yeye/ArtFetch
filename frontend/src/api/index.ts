@@ -3,12 +3,16 @@ import type {
   Artwork,
   ArtworkPreview,
   ArtworkReviewSummary,
+  AutoEvaluationArtworkCandidate,
+  AutoEvaluationDataset,
+  AutoEvaluationSourceProject,
   AuditLog,
   AuthPermission,
   AuthRole,
   AuthUser,
   CurrentUser,
   CriterionItem,
+  CheckAutoEvaluationDatasetResponse,
   EvaluationAuditRecord,
   EvaluationMetricDefinition,
   EvaluationMetricTemplate,
@@ -225,6 +229,73 @@ export const updateEvaluationMetricTemplate = (id: number, data: { name: string;
 export const deleteEvaluationMetricTemplate = (id: number) =>
   api.delete(`/evaluation-metric-templates/${id}`).then((r) => r.data);
 
+// Auto-evaluation training datasets
+export const listAutoEvaluationDatasets = (page = 0, size = 20) =>
+  api.get<PageResult<AutoEvaluationDataset>>('/auto-evaluation/datasets', { params: { page, size } }).then((r) => r.data);
+
+export const listAutoEvaluationSourceProjects = (query: { keyword?: string; page?: number; size?: number } = {}) =>
+  api.get<PageResult<AutoEvaluationSourceProject>>('/auto-evaluation/datasets/source-evaluations', { params: query }).then((r) => r.data);
+
+export const createAutoEvaluationDataset = (data: {
+  name: string
+  sourceEvaluationId: number
+  aggregationStrategy?: 'AVERAGE_ALL_EXPERTS' | 'SELECTED_EXPERT'
+  selectedExpertId?: number
+}) => api.post<AutoEvaluationDataset>('/auto-evaluation/datasets', data).then((r) => r.data);
+
+export const getAutoEvaluationDataset = (id: number) =>
+  api.get<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}`).then((r) => r.data);
+
+export const updateAutoEvaluationDataset = (id: number, data: {
+  name: string
+  aggregationStrategy?: 'AVERAGE_ALL_EXPERTS' | 'SELECTED_EXPERT'
+  selectedExpertId?: number
+}) => api.put<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}`, data).then((r) => r.data);
+
+export const deleteAutoEvaluationDataset = (id: number) =>
+  api.delete(`/auto-evaluation/datasets/${id}`).then((r) => r.data);
+
+export const archiveAutoEvaluationDataset = (id: number) =>
+  api.post<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}/archive`).then((r) => r.data);
+
+export const listAutoEvaluationDatasetArtworks = (id: number, query: {
+  keyword?: string
+  selectedOnly?: boolean
+  page?: number
+  size?: number
+} = {}) =>
+  api.get<PageResult<AutoEvaluationArtworkCandidate>>(`/auto-evaluation/datasets/${id}/artworks`, { params: query }).then((r) => r.data);
+
+export const updateAutoEvaluationDatasetSelection = (id: number, artworkIds: number[], selected: boolean) =>
+  api.post<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}/selected-artworks`, { artworkIds, selected }).then((r) => r.data);
+
+export const clearAutoEvaluationDatasetSelection = (id: number) =>
+  api.delete<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}/selected-artworks`).then((r) => r.data);
+
+export const checkAutoEvaluationDataset = (id: number) =>
+  api.post<CheckAutoEvaluationDatasetResponse>(`/auto-evaluation/datasets/${id}/check`).then((r) => r.data);
+
+export const generateAutoEvaluationDataset = (id: number) =>
+  api.post<AutoEvaluationDataset>(`/auto-evaluation/datasets/${id}/generate`).then((r) => r.data);
+
+export const autoEvaluationDatasetDownloadUrl = (id: number) =>
+  `/api/auto-evaluation/datasets/${id}/download`;
+
+export const downloadAutoEvaluationDataset = async (id: number, fallbackName?: string) => {
+  const response = await api.get<Blob>(`/auto-evaluation/datasets/${id}/download`, { responseType: 'blob' });
+  const disposition = response.headers['content-disposition'] || '';
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/) || disposition.match(/filename\*=UTF-8''([^;]+)/);
+  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : fallbackName || `artfetch-training-dataset-${id}.zip`;
+  const objectUrl = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+};
+
 // Evaluations
 export const listEvaluations = (page = 0, size = 20) =>
   api.get<PageResult<EvaluationProjectListItem>>('/evaluations', { params: { page, size } }).then((r) => r.data);
@@ -291,6 +362,7 @@ export const getMyExpertReview = (evaluationId: number, artworkId: number) =>
 
 export const saveMyExpertReview = (evaluationId: number, artworkId: number, data: {
   finalEstimate?: string
+  finalEstimateAmount?: number
   finalEstimateCurrency?: string
   comment?: string
   scores: ExpertReview['scores']
@@ -298,6 +370,7 @@ export const saveMyExpertReview = (evaluationId: number, artworkId: number, data
 
 export const submitMyExpertReview = (evaluationId: number, artworkId: number, data: {
   finalEstimate?: string
+  finalEstimateAmount?: number
   finalEstimateCurrency?: string
   comment?: string
   scores: ExpertReview['scores']
@@ -318,6 +391,7 @@ export const getExpertMobileReview = (evaluationId: number, artworkId: number) =
 
 export const saveExpertMobileReview = (evaluationId: number, artworkId: number, data: {
   finalEstimate?: string
+  finalEstimateAmount?: number
   finalEstimateCurrency?: string
   comment?: string
   scores: ExpertReview['scores']
@@ -325,6 +399,7 @@ export const saveExpertMobileReview = (evaluationId: number, artworkId: number, 
 
 export const submitExpertMobileReview = (evaluationId: number, artworkId: number, data: {
   finalEstimate?: string
+  finalEstimateAmount?: number
   finalEstimateCurrency?: string
   comment?: string
   scores: ExpertReview['scores']

@@ -69,6 +69,10 @@ artfetch:
     fetch-timeout-ms: 30000
     batch-size: 96
     fetch-concurrency: 96
+  auto-evaluation:
+    dataset-storage-path: ${ARTFETCH_AUTO_EVALUATION_DATASET_STORAGE_PATH:data/auto-evaluation/datasets}
+    dataset-mobile-soft-size-limit-mb: ${ARTFETCH_AUTO_EVALUATION_DATASET_MOBILE_SOFT_SIZE_LIMIT_MB:500}
+    dataset-mobile-hard-size-limit-mb: ${ARTFETCH_AUTO_EVALUATION_DATASET_MOBILE_HARD_SIZE_LIMIT_MB:2048}
   auth:
     # 登录雅昌后的完整 Cookie Header；可通过环境变量 ARTFETCH_AUTH_ARTRON_COOKIE 覆盖
     artron-cookie: ${ARTFETCH_AUTH_ARTRON_COOKIE:}

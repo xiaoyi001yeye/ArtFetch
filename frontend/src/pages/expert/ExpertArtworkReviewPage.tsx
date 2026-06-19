@@ -26,8 +26,7 @@ import { parseMetricOptions, parseStoredOptionValue, stringifyStoredOptionValue 
 import { reviewStatusTag } from './expertUi'
 
 type ReviewFormValues = {
-  finalEstimate?: string
-  finalEstimateCurrency?: string
+  finalEstimateAmount?: number
   comment?: string
 }
 
@@ -51,8 +50,7 @@ export default function ExpertArtworkReviewPage() {
       const result = await api.getExpertMobileReview(Number(projectId), Number(artworkId))
       setData(result)
       form.setFieldsValue({
-        finalEstimate: result.review.finalEstimate,
-        finalEstimateCurrency: result.review.finalEstimateCurrency,
+        finalEstimateAmount: result.review.finalEstimateAmount,
         comment: result.review.comment,
       })
       setScores(Object.fromEntries(result.metrics
@@ -78,10 +76,16 @@ export default function ExpertArtworkReviewPage() {
     return ['SUBMITTED', 'RESUBMITTED'].includes(data.review.status)
   }, [data])
 
-  const payload = () => ({
-    ...form.getFieldsValue(),
-    scores: Object.values(scores),
-  })
+  const payload = () => {
+    const values = form.getFieldsValue()
+    return {
+      finalEstimate: values.finalEstimateAmount == null ? undefined : String(values.finalEstimateAmount),
+      finalEstimateAmount: values.finalEstimateAmount,
+      finalEstimateCurrency: 'CNY',
+      comment: values.comment,
+      scores: Object.values(scores),
+    }
+  }
 
   const saveDraft = async (quiet = false) => {
     if (!data || readOnly || saving || autoSaving) return false
@@ -287,11 +291,8 @@ export default function ExpertArtworkReviewPage() {
       ))}
       <Card className="expert-mobile-card" title="整体结论">
         <Form form={form} layout="vertical" onValuesChange={() => setDirty(true)}>
-          <Form.Item name="finalEstimate" label="最终估价" rules={[{ required: true, message: '请输入最终估价' }]}>
-            <Input disabled={readOnly} />
-          </Form.Item>
-          <Form.Item name="finalEstimateCurrency" label="币种" rules={[{ required: true, message: '请输入币种' }]}>
-            <Input disabled={readOnly} placeholder="例如 RMB" />
+          <Form.Item name="finalEstimateAmount" label="最终估值金额（CNY）" rules={[{ required: true, message: '请输入最终估值金额' }]}>
+            <InputNumber min={0.01} precision={2} disabled={readOnly} style={{ width: '100%' }} inputMode="decimal" />
           </Form.Item>
           <Form.Item name="comment" label="整体评语">
             <Input.TextArea disabled={readOnly} autoSize={{ minRows: 3 }} />

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
@@ -34,6 +35,9 @@ public class ExpertReview {
 
     @Column(name = "final_estimate", columnDefinition = "TEXT")
     private String finalEstimate;
+
+    @Column(name = "final_estimate_amount", precision = 19, scale = 2)
+    private BigDecimal finalEstimateAmount;
 
     @Column(name = "final_estimate_currency", length = 20)
     private String finalEstimateCurrency;

@@ -13,6 +13,7 @@ public class AppProperties {
     private ObjectStorage objectStorage = new ObjectStorage();
     private Price price = new Price();
     private Description description = new Description();
+    private AutoEvaluation autoEvaluation = new AutoEvaluation();
     private Auth auth = new Auth();
 
     @Data
@@ -105,6 +106,16 @@ public class AppProperties {
         private int fetchConcurrency = 96;
         /** 抓取详情页补充拍品描述时的超时时间 */
         private int fetchTimeoutMs = 30_000;
+    }
+
+    @Data
+    public static class AutoEvaluation {
+        /** 训练数据集包的后端本地存储目录 */
+        private String datasetStoragePath = "data/auto-evaluation/datasets";
+        /** 手机端选择样本时的软提示上限 */
+        private long datasetMobileSoftSizeLimitMb = 500;
+        /** 手机端和后端生成训练包的硬上限 */
+        private long datasetMobileHardSizeLimitMb = 2048;
     }
 
     @Data

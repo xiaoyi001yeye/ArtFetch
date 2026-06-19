@@ -73,6 +73,9 @@ public class EvaluationMetricDefinition {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(name = "built_in", nullable = false)
+    private boolean builtIn = false;
+
     @Column(name = "sort_order", nullable = false)
     private int sortOrder = 0;
 

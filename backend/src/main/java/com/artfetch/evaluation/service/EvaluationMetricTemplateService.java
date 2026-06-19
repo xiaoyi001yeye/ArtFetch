@@ -51,6 +51,9 @@ public class EvaluationMetricTemplateService {
     @Transactional
     public EvaluationMetricTemplateDto update(Long id, UpdateEvaluationMetricTemplateRequest request) {
         EvaluationMetricTemplate template = requireEntity(id);
+        if (template.isBuiltIn()) {
+            throw new IllegalStateException("系统内置评估指标模板不能编辑");
+        }
         template.setName(request.name().trim());
         template.setDescription(blankToNull(request.description()));
         template.setEnabled(request.enabled() == null || request.enabled());
@@ -61,7 +64,10 @@ public class EvaluationMetricTemplateService {
 
     @Transactional
     public void delete(Long id) {
-        requireEntity(id);
+        EvaluationMetricTemplate template = requireEntity(id);
+        if (template.isBuiltIn()) {
+            throw new IllegalStateException("系统内置评估指标模板不能删除");
+        }
         itemRepository.deleteByTemplateId(id);
         repository.deleteById(id);
     }

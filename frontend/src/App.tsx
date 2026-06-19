@@ -5,6 +5,7 @@ import {
   CloudServerOutlined,
   FileDoneOutlined,
   FileSearchOutlined,
+  FolderOpenOutlined,
   LogoutOutlined,
   ProfileOutlined,
   SafetyCertificateOutlined,
@@ -31,6 +32,8 @@ import MyEvaluationsPage from './pages/evaluation/MyEvaluationsPage'
 import ExpertReviewPage from './pages/evaluation/ExpertReviewPage'
 import EvaluationMetricsPage from './pages/evaluation/EvaluationMetricsPage'
 import EvaluationTemplatesPage from './pages/evaluation/EvaluationTemplatesPage'
+import AutoEvaluationDatasetsPage from './pages/auto-evaluation/AutoEvaluationDatasetsPage'
+import AutoEvaluationDatasetDetailPage from './pages/auto-evaluation/AutoEvaluationDatasetDetailPage'
 import HdImageMigrationsPage from './pages/HdImageMigrationsPage'
 import ObjectStorageSettingsPage from './pages/settings/ObjectStorageSettingsPage'
 import ExpertMobileRoutes from './pages/expert/ExpertMobileRoutes'
@@ -86,6 +89,11 @@ export default function App() {
       icon: <SnippetsOutlined />,
       label: <Link to="/evaluation-metric-templates">指标模板</Link>,
     },
+    hasPermission(permissions.autoEvaluationDatasetView) && {
+      key: 'auto-evaluation-datasets',
+      icon: <FolderOpenOutlined />,
+      label: <Link to="/auto-evaluation/datasets">训练数据集</Link>,
+    },
     hasPermission(permissions.userView) && {
       key: 'users',
       icon: <TeamOutlined />,
@@ -117,6 +125,7 @@ export default function App() {
     if (hasPermission(permissions.evaluationReviewAssignedView)) return '/my-evaluations'
     if (hasPermission(permissions.evaluationMetricView)) return '/evaluation-metrics'
     if (hasPermission(permissions.evaluationTemplateView)) return '/evaluation-metric-templates'
+    if (hasPermission(permissions.autoEvaluationDatasetView)) return '/auto-evaluation/datasets'
     if (hasPermission(permissions.userView)) return '/users'
     if (hasPermission(permissions.roleView)) return '/roles'
     if (hasPermission(permissions.auditLogView)) return '/audit-logs'
@@ -131,6 +140,7 @@ export default function App() {
     if (location.pathname.startsWith('/my-evaluations')) return 'my-evaluations'
     if (location.pathname.startsWith('/evaluation-metrics')) return 'evaluation-metrics'
     if (location.pathname.startsWith('/evaluation-metric-templates')) return 'evaluation-templates'
+    if (location.pathname.startsWith('/auto-evaluation/datasets')) return 'auto-evaluation-datasets'
     if (location.pathname.startsWith('/evaluations')) return 'evaluations'
     if (location.pathname.startsWith('/users')) return 'users'
     if (location.pathname.startsWith('/roles')) return 'roles'
@@ -223,6 +233,8 @@ export default function App() {
           <Route path="/my-evaluations" element={<RequireAuth permissions={[permissions.evaluationReviewAssignedView]}><MyEvaluationsPage /></RequireAuth>} />
           <Route path="/evaluation-metrics" element={<RequireAuth permissions={[permissions.evaluationMetricView]}><EvaluationMetricsPage /></RequireAuth>} />
           <Route path="/evaluation-metric-templates" element={<RequireAuth permissions={[permissions.evaluationTemplateView]}><EvaluationTemplatesPage /></RequireAuth>} />
+          <Route path="/auto-evaluation/datasets" element={<RequireAuth permissions={[permissions.autoEvaluationDatasetView]}><AutoEvaluationDatasetsPage /></RequireAuth>} />
+          <Route path="/auto-evaluation/datasets/:id" element={<RequireAuth permissions={[permissions.autoEvaluationDatasetView]}><AutoEvaluationDatasetDetailPage /></RequireAuth>} />
           <Route path="/users" element={<RequireAuth permissions={[permissions.userView]}><UsersPage /></RequireAuth>} />
           <Route path="/roles" element={<RequireAuth permissions={[permissions.roleView]}><RolesPage /></RequireAuth>} />
           <Route path="/audit-logs" element={<RequireAuth permissions={[permissions.auditLogView]}><AuditLogsPage /></RequireAuth>} />

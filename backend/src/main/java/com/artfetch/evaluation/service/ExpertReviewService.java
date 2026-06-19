@@ -167,6 +167,7 @@ public class ExpertReviewService {
 
     private void applyReviewContent(ExpertReview review, SaveExpertReviewRequest request, boolean validateForSubmit) {
         review.setFinalEstimate(blankToNull(request.finalEstimate()));
+        review.setFinalEstimateAmount(request.finalEstimateAmount());
         review.setFinalEstimateCurrency(blankToNull(request.finalEstimateCurrency()));
         review.setComment(blankToNull(request.comment()));
 
@@ -193,6 +194,9 @@ public class ExpertReviewService {
         scoreRepository.saveAll(existing.values());
 
         if (validateForSubmit) {
+            if (review.getFinalEstimateAmount() == null || review.getFinalEstimateAmount().signum() <= 0) {
+                throw new IllegalArgumentException("提交前必须填写大于 0 的最终估值金额");
+            }
             if (review.getFinalEstimate() == null || review.getFinalEstimateCurrency() == null) {
                 throw new IllegalArgumentException("提交前必须填写最终估价和币种");
             }

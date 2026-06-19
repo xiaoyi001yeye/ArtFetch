@@ -14,8 +14,7 @@ import {
 } from './metricInputUtils'
 
 type ReviewFormValues = {
-  finalEstimate?: string
-  finalEstimateCurrency?: string
+  finalEstimateAmount?: number
   comment?: string
 }
 
@@ -49,8 +48,7 @@ export default function ExpertReviewPage() {
       setData(result)
       setArtworks(artworkItems)
       form.setFieldsValue({
-        finalEstimate: result.review.finalEstimate,
-        finalEstimateCurrency: result.review.finalEstimateCurrency,
+        finalEstimateAmount: result.review.finalEstimateAmount,
         comment: result.review.comment,
       })
       const scoreMap: Record<number, ExpertReviewScore> = {}
@@ -79,9 +77,11 @@ export default function ExpertReviewPage() {
 
   const buildPayload = async () => {
     const values = await form.validateFields()
+    const amount = values.finalEstimateAmount
     return {
-      finalEstimate: values.finalEstimate,
-      finalEstimateCurrency: values.finalEstimateCurrency,
+      finalEstimate: amount == null ? undefined : String(amount),
+      finalEstimateAmount: amount,
+      finalEstimateCurrency: 'CNY',
       comment: values.comment,
       scores: Object.values(scores),
     }
@@ -382,11 +382,13 @@ export default function ExpertReviewPage() {
       <Card title="整体结论">
         <Form form={form} layout="vertical">
           <Space style={{ width: '100%' }} align="start">
-            <Form.Item name="finalEstimate" label="最终估价" style={{ flex: 1 }}>
-              <Input disabled={readOnly} />
-            </Form.Item>
-            <Form.Item name="finalEstimateCurrency" label="币种" style={{ width: 160 }}>
-              <Input disabled={readOnly} placeholder="例如 RMB" />
+            <Form.Item
+              name="finalEstimateAmount"
+              label="最终估值金额（CNY）"
+              style={{ flex: 1 }}
+              rules={[{ required: true, message: '请输入最终估值金额' }]}
+            >
+              <InputNumber min={0.01} precision={2} disabled={readOnly} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
           <Form.Item name="comment" label="整体评语">

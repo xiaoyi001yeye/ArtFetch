@@ -47,6 +47,10 @@ public final class PermissionCodes {
     public static final String EVALUATION_AUDIT_REJECT_REVIEW = "evaluation-audit:reject-review";
     public static final String EVALUATION_AUDIT_HISTORY_VIEW = "evaluation-audit:history:view";
 
+    public static final String AUTO_EVALUATION_DATASET_VIEW = "auto-evaluation:dataset:view";
+    public static final String AUTO_EVALUATION_DATASET_CREATE = "auto-evaluation:dataset:create";
+    public static final String AUTO_EVALUATION_DATASET_EXPORT = "auto-evaluation:dataset:export";
+
     public static final String USER_VIEW = "user:view";
     public static final String USER_CREATE = "user:create";
     public static final String USER_UPDATE = "user:update";

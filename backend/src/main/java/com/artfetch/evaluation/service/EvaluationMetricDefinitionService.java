@@ -66,6 +66,9 @@ public class EvaluationMetricDefinitionService {
     @Transactional
     public EvaluationMetricDefinitionDto update(Long id, UpdateEvaluationMetricDefinitionRequest request) {
         EvaluationMetricDefinition item = requireEntity(id);
+        if (item.isBuiltIn()) {
+            throw new IllegalStateException("系统内置评估指标不能编辑");
+        }
         apply(item, request.name(), request.description(), request.category(), request.applicableArtworkTypes(),
                 request.scoreType(), request.minScore(), request.maxScore(), request.scoreStep(), request.defaultWeight(),
                 request.required(), request.inputComponent(), request.optionValues(), request.scoringGuide(), request.scoringRubric(), request.unit(),
@@ -75,7 +78,11 @@ public class EvaluationMetricDefinitionService {
 
     @Transactional
     public void delete(Long id) {
-        repository.delete(requireEntity(id));
+        EvaluationMetricDefinition item = requireEntity(id);
+        if (item.isBuiltIn()) {
+            throw new IllegalStateException("系统内置评估指标不能删除");
+        }
+        repository.delete(item);
     }
 
     private EvaluationMetricDefinition requireEntity(Long id) {

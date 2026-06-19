@@ -301,6 +301,7 @@ export interface EvaluationMetricDefinition {
   unit?: string
   tags?: string
   enabled: boolean
+  builtIn: boolean
   sortOrder: number
   version: number
   createdBy?: string
@@ -310,9 +311,11 @@ export interface EvaluationMetricDefinition {
 
 export interface EvaluationMetricTemplate {
   id: number
+  code?: string
   name: string
   description?: string
   enabled: boolean
+  builtIn: boolean
   itemCount: number
   items: MetricConfig[]
   createdAt: string
@@ -406,6 +409,7 @@ export interface ExpertReview {
   expertId: number
   expertName: string
   finalEstimate?: string
+  finalEstimateAmount?: number
   finalEstimateCurrency?: string
   comment?: string
   status: ExpertReviewStatus
@@ -512,4 +516,88 @@ export interface EvaluationAuditRecord {
   previousStatus?: string
   nextStatus?: string
   createdAt: string
+}
+
+export type AutoEvaluationDatasetStatus = 'DRAFT' | 'GENERATING' | 'READY' | 'FAILED' | 'ARCHIVED'
+export type AutoEvaluationAggregationStrategy = 'AVERAGE_ALL_EXPERTS' | 'SELECTED_EXPERT'
+
+export interface AutoEvaluationDataset {
+  id: number
+  name: string
+  sourceEvaluationId: number
+  sourceEvaluationName: string
+  templateId: number
+  templateCode: string
+  aggregationStrategy: AutoEvaluationAggregationStrategy
+  selectedExpertId?: number
+  selectedExpertName?: string
+  status: AutoEvaluationDatasetStatus
+  selectedCount: number
+  sampleCount: number
+  skippedCount: number
+  excludedByUserCount: number
+  estimatedSelectedImageSize: number
+  zipFileSize?: number
+  zipSha256?: string
+  errorMessage?: string
+  createdBy?: number
+  createdByName?: string
+  generatedAt?: string
+  archivedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AutoEvaluationSourceProject {
+  id: number
+  name: string
+  artworkCount: number
+  expertCount: number
+  completedAt?: string
+}
+
+export interface AutoEvaluationArtworkCandidate {
+  artworkId: number
+  title: string
+  artist?: string
+  lotNumber?: string
+  imageUrl?: string
+  auctionDate?: string
+  imageSourceCandidate: 'HD' | 'ORIGINAL' | 'NONE'
+  estimatedImageSize: number
+  selected: boolean
+}
+
+export interface AutoEvaluationDatasetSamplePreview {
+  artworkId: number
+  title: string
+  imagePath: string
+  imageSourceType: string
+  estimatedImageSize: number
+  expertReviewIds: number[]
+  finalEstimateAmountCny: number
+  features: Record<string, number>
+}
+
+export interface AutoEvaluationDatasetSkippedSample {
+  artworkId: number
+  title: string
+  lotNumber?: string
+  artist?: string
+  reasons: string[]
+  expertReviewIds: number[]
+  missingMetricCodes: string[]
+  selectedExpertId?: number
+}
+
+export interface CheckAutoEvaluationDatasetResponse {
+  datasetId: number
+  selectedCount: number
+  sampleCount: number
+  skippedCount: number
+  estimatedPackageSize: number
+  exceedsMobileSoftLimit: boolean
+  exceedsMobileHardLimit: boolean
+  samples: AutoEvaluationDatasetSamplePreview[]
+  skippedSamples: AutoEvaluationDatasetSkippedSample[]
 }

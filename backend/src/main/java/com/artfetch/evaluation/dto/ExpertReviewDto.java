@@ -2,6 +2,7 @@ package com.artfetch.evaluation.dto;
 
 import com.artfetch.evaluation.entity.ExpertReview;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -12,6 +13,7 @@ public record ExpertReviewDto(
         Long expertId,
         String expertName,
         String finalEstimate,
+        BigDecimal finalEstimateAmount,
         String finalEstimateCurrency,
         String comment,
         String status,
@@ -29,6 +31,7 @@ public record ExpertReviewDto(
                 review.getExpertId(),
                 review.getExpertName(),
                 review.getFinalEstimate(),
+                review.getFinalEstimateAmount(),
                 review.getFinalEstimateCurrency(),
                 review.getComment(),
                 review.getStatus().name(),
