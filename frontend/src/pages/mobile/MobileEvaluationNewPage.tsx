@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Checkbox, Empty, Form, Input, message, Select, Skeleton, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Checkbox, Empty, Form, Input, message, Select, Skeleton, Space, Tabs, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined, LeftOutlined, RightOutlined, SaveOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import MobileDataLayout from '../../layouts/MobileDataLayout'
 import { useAuth } from '../../auth/AuthContext'
 import * as api from '../../api'
@@ -57,7 +57,10 @@ const userLabel = (user: AuthUser) => `${user.displayName || user.username} (${u
 
 export default function MobileEvaluationNewPage() {
   const navigate = useNavigate()
+  const { id } = useParams()
   const { user } = useAuth()
+  const editingId = id ? Number(id) : undefined
+  const editing = editingId != null && Number.isFinite(editingId)
   const [form] = Form.useForm<ProjectFormValues>()
   const [step, setStep] = useState(0)
   const [users, setUsers] = useState<AuthUser[]>([])
@@ -80,21 +83,50 @@ export default function MobileEvaluationNewPage() {
   const selectedExperts = useMemo(() => expertUsers.filter((item) => selectedExpertIds.includes(item.id)), [expertUsers, selectedExpertIds])
 
   useEffect(() => {
-    form.setFieldsValue({ criteria: [defaultCriterion] as CriterionItem[] })
-    Promise.all([
-      api.listUsers(0, 500),
-      api.listEvaluationMetricTemplates(0, 200),
-    ])
-      .then(([userResult, templateResult]) => {
+    setLoadingOptions(true)
+    const projectRequest = editingId ? api.getEvaluation(editingId) : Promise.resolve(undefined)
+    Promise.all([api.listUsers(0, 500), api.listEvaluationMetricTemplates(0, 200), projectRequest])
+      .then(([userResult, templateResult, project]) => {
         setUsers(userResult.items)
         setTemplates(templateResult.items)
-        if (user?.roles.some((role) => role === 'ADMIN' || role === 'AUDITOR')) {
+        if (project) {
+          if (!['DRAFT', 'PENDING'].includes(project.status)) {
+            message.error('只有未发布项目可以编辑')
+            navigate(`/m/evaluations/${project.id}`, { replace: true })
+            return
+          }
+          form.setFieldsValue({
+            name: project.name,
+            description: project.description,
+            auditorId: project.auditorId,
+            criteria: project.criteria.length > 0 ? project.criteria : [defaultCriterion as CriterionItem],
+          })
+          setPreviewArtworks(project.artworks.map((item) => ({
+            id: item.artworkId,
+            title: item.artwork.title,
+            artist: item.artwork.artist,
+            lotNumber: item.artwork.lotNumber,
+            medium: item.artwork.medium,
+            valuation: item.artwork.valuation,
+            auctionHouse: item.artwork.auctionHouse,
+            auctionDate: item.artwork.auctionDate,
+            imageUrl: item.artwork.imageUrl,
+          })))
+          setSelectedArtworkIds(project.artworks.map((item) => item.artworkId))
+          setSelectedExpertIds(project.experts.map((item) => item.expertId))
+          setTemplateMetrics(project.metrics)
+          const sourceTemplateIds = Array.from(new Set(project.metrics.map((item) => item.sourceTemplateId).filter(Boolean)))
+          if (sourceTemplateIds.length === 1) setTemplateId(sourceTemplateIds[0])
+        } else {
+          form.setFieldsValue({ criteria: [defaultCriterion] as CriterionItem[] })
+        }
+        if (!project && user?.roles.some((role) => role === 'ADMIN' || role === 'AUDITOR')) {
           form.setFieldValue('auditorId', user.id)
         }
       })
       .catch((e: any) => message.error(e.message))
       .finally(() => setLoadingOptions(false))
-  }, [form, user])
+  }, [editingId, form, navigate, user])
 
   const buildCriteria = () => (form.getFieldValue('criteria') || []).map((item: CriterionItem) => {
     const field = criteriaFieldMap.get(item.fieldName)
@@ -192,22 +224,60 @@ export default function MobileEvaluationNewPage() {
     }
   }
 
+  const saveEditTab = async () => {
+    if (!editingId) return
+    try {
+      const values = await form.validateFields(['name', 'description', 'auditorId', 'criteria'])
+      const payload: Parameters<typeof api.updateEvaluation>[1] = {
+        name: values.name,
+        description: values.description,
+        auditorId: values.auditorId,
+        criteria: buildCriteria(),
+      }
+      if (step >= 2) {
+        if (selectedArtworkIds.length === 0) throw new Error('请至少选择一件艺术品')
+        if (selectedExpertIds.length === 0) throw new Error('请至少选择一位专家')
+        if (templateMetrics.length === 0) throw new Error('请至少配置一个评估指标')
+        payload.artworkIds = selectedArtworkIds
+        payload.expertIds = selectedExpertIds
+        payload.metrics = templateMetrics
+      }
+      setCreating(true)
+      const result = await api.updateEvaluation(editingId, payload)
+      setTemplateMetrics(result.metrics)
+      message.success(`${steps[step]}已保存`)
+    } catch (e: any) {
+      if (e?.message) message.error(e.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
   const currentAuditor = auditorUsers.find((item) => item.id === form.getFieldValue('auditorId'))
 
   return (
-    <MobileDataLayout title="新建评估项目" hideNav>
+    <MobileDataLayout title={editing ? '编辑评估项目' : '新建评估项目'} hideNav>
       <div className="mobile-detail-topbar">
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/m/evaluations')}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(editingId ? `/m/evaluations/${editingId}` : '/m/evaluations')}>返回</Button>
       </div>
 
-      <div className="mobile-evaluation-steps">
-        {steps.map((item, index) => (
-          <div key={item} className={index === step ? 'active' : index < step ? 'done' : ''}>
-            <span>{index + 1}</span>
-            <strong>{item}</strong>
-          </div>
-        ))}
-      </div>
+      {editing ? (
+        <Tabs
+          className="mobile-evaluation-edit-tabs"
+          activeKey={String(step)}
+          onChange={(key) => setStep(Number(key))}
+          items={['基本信息', '筛选作品', '确认作品', '专家', '指标'].map((label, index) => ({ key: String(index), label }))}
+        />
+      ) : (
+        <div className="mobile-evaluation-steps">
+          {steps.map((item, index) => (
+            <div key={item} className={index === step ? 'active' : index < step ? 'done' : ''}>
+              <span>{index + 1}</span>
+              <strong>{item}</strong>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loadingOptions ? (
         <div className="mobile-data-stack">
@@ -341,6 +411,37 @@ export default function MobileEvaluationNewPage() {
                   options={expertUsers.map((item) => ({ value: item.id, label: userLabel(item) }))}
                 />
               </Form.Item>
+              {!editing && (
+                <>
+                  <Form.Item label="指标模板">
+                    <Select
+                      allowClear
+                      value={templateId}
+                      onChange={chooseTemplate}
+                      loading={loadingTemplate}
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择指标模板"
+                      options={enabledTemplates.map((item) => ({ value: item.id, label: `${item.name}（${item.itemCount} 项）` }))}
+                    />
+                  </Form.Item>
+                  {enabledTemplates.length === 0 && <Alert type="warning" showIcon message="暂无可用指标模板，请先在桌面端配置指标模板。" />}
+                  {templateId && (
+                    <div className="mobile-evaluation-template-panel">
+                      <Typography.Text strong>{selectedTemplate?.name || '已选模板'}</Typography.Text>
+                      <div className="mobile-dataset-meta">指标数：{templateMetrics.length}</div>
+                      <Space wrap size={[4, 6]}>
+                        {templateMetrics.map((item) => <Tag key={item.code}>{item.name}</Tag>)}
+                      </Space>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
+
+          {step === 4 && editing && (
+            <section className="mobile-detail-section">
               <Form.Item label="指标模板">
                 <Select
                   allowClear
@@ -349,24 +450,22 @@ export default function MobileEvaluationNewPage() {
                   loading={loadingTemplate}
                   showSearch
                   optionFilterProp="label"
-                  placeholder="选择指标模板"
+                  placeholder="选择模板以替换当前指标"
                   options={enabledTemplates.map((item) => ({ value: item.id, label: `${item.name}（${item.itemCount} 项）` }))}
                 />
               </Form.Item>
               {enabledTemplates.length === 0 && <Alert type="warning" showIcon message="暂无可用指标模板，请先在桌面端配置指标模板。" />}
-              {templateId && (
-                <div className="mobile-evaluation-template-panel">
-                  <Typography.Text strong>{selectedTemplate?.name || '已选模板'}</Typography.Text>
-                  <div className="mobile-dataset-meta">指标数：{templateMetrics.length}</div>
-                  <Space wrap size={[4, 6]}>
-                    {templateMetrics.map((item) => <Tag key={item.code}>{item.name}</Tag>)}
-                  </Space>
-                </div>
-              )}
+              <div className="mobile-evaluation-template-panel">
+                <Typography.Text strong>{selectedTemplate?.name || '当前项目指标'}</Typography.Text>
+                <div className="mobile-dataset-meta">指标数：{templateMetrics.length}</div>
+                <Space wrap size={[4, 6]}>
+                  {templateMetrics.map((item) => <Tag key={item.code}>{item.name}</Tag>)}
+                </Space>
+              </div>
             </section>
           )}
 
-          {step === 4 && (
+          {step === 4 && !editing && (
             <section className="mobile-detail-section">
               <div className="mobile-evaluation-summary">
                 <div><span>项目名称</span><strong>{form.getFieldValue('name')}</strong></div>
@@ -385,14 +484,25 @@ export default function MobileEvaluationNewPage() {
         </Form>
       )}
 
-      <div className="mobile-evaluation-wizard-actions">
-        <Button icon={<LeftOutlined />} disabled={step === 0 || creating} onClick={() => setStep(step - 1)}>上一步</Button>
-        {step === 0 && <Button type="primary" icon={<RightOutlined />} onClick={validateBasic}>下一步</Button>}
-        {step === 1 && <Button type="primary" icon={<CheckOutlined />} loading={previewLoading} onClick={preview}>预览作品</Button>}
-        {step === 2 && <Button type="primary" icon={<RightOutlined />} onClick={validateArtworkSelection}>下一步</Button>}
-        {step === 3 && <Button type="primary" icon={<RightOutlined />} onClick={validateExpertsAndMetrics}>下一步</Button>}
-        {step === 4 && <Button type="primary" icon={<SaveOutlined />} loading={creating} onClick={create}>创建项目</Button>}
-      </div>
+      {editing ? (
+        <div className="mobile-evaluation-wizard-actions">
+          {step === 1 ? (
+            <Button icon={<CheckOutlined />} loading={previewLoading} onClick={preview}>重新预览</Button>
+          ) : (
+            <Button onClick={() => navigate(`/m/evaluations/${editingId}`)}>取消</Button>
+          )}
+          <Button type="primary" icon={<SaveOutlined />} loading={creating} onClick={saveEditTab}>保存本页</Button>
+        </div>
+      ) : (
+        <div className="mobile-evaluation-wizard-actions">
+          <Button icon={<LeftOutlined />} disabled={step === 0 || creating} onClick={() => setStep(step - 1)}>上一步</Button>
+          {step === 0 && <Button type="primary" icon={<RightOutlined />} onClick={validateBasic}>下一步</Button>}
+          {step === 1 && <Button type="primary" icon={<CheckOutlined />} loading={previewLoading} onClick={preview}>预览作品</Button>}
+          {step === 2 && <Button type="primary" icon={<RightOutlined />} onClick={validateArtworkSelection}>下一步</Button>}
+          {step === 3 && <Button type="primary" icon={<RightOutlined />} onClick={validateExpertsAndMetrics}>下一步</Button>}
+          {step === 4 && <Button type="primary" icon={<SaveOutlined />} loading={creating} onClick={create}>创建项目</Button>}
+        </div>
+      )}
     </MobileDataLayout>
   )
 }

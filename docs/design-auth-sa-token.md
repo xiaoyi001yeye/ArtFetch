@@ -1248,3 +1248,8 @@ void recordFailure(String action, String resourceType, String resourceId, String
 - 用户、角色、权限变更写入审计日志。
 - 关键业务操作写入审计日志。
 - 审计日志不包含明文密码和 token。
+## 21. 手机端评估项目权限补充（2026-06-20）
+
+`/m/evaluations` 复用桌面端评估项目的稳定权限码，不新增只用于隐藏移动端入口的重复权限。移动端详情、编辑、发布、提交审核、审核和删除分别按 `evaluation:view`、`evaluation:update`、`evaluation:publish`、`evaluation:submit-review`、`evaluation-audit:*` 和 `evaluation:delete` 控制。
+
+审核数据范围保持不变：管理员可兜底审核；非管理员必须同时拥有对应审核权限且是项目指定审核人。评估结果、审核记录、审核通过和单条评估驳回接口均需要控制器权限注解，并继续在服务层校验项目数据范围。

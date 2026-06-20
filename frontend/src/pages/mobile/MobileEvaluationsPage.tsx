@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Empty, message, Skeleton, Typography } from 'antd'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Button, Empty, message, Modal, Skeleton, Typography } from 'antd'
+import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, SendOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import MobileDataLayout from '../../layouts/MobileDataLayout'
 import { useAuth } from '../../auth/AuthContext'
 import { permissions } from '../../auth/permissions'
 import * as api from '../../api'
 import type { EvaluationProjectListItem } from '../../types'
-import { projectStatusTag } from '../expert/expertUi'
+import { editableEvaluationStatuses, mobileEvaluationStatusTag, submitReviewStatuses } from './mobileEvaluationUi'
 
 const PAGE_SIZE = 10
 
@@ -21,6 +21,37 @@ export default function MobileEvaluationsPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
+
+  const runAction = async (action: () => Promise<unknown>, success: string) => {
+    try {
+      await action()
+      message.success(success)
+      await load(page)
+    } catch (e: any) {
+      message.error(e.message)
+    }
+  }
+
+  const confirmPublish = (item: EvaluationProjectListItem) => {
+    Modal.confirm({
+      title: '确认发布项目？',
+      content: `发布后配置将锁定。当前包含 ${item.artworkCount} 件作品、${item.expertCount} 位专家。`,
+      okText: '确认发布',
+      cancelText: '取消',
+      onOk: () => runAction(() => api.publishEvaluation(item.id), '项目已发布'),
+    })
+  }
+
+  const confirmDelete = (item: EvaluationProjectListItem) => {
+    Modal.confirm({
+      title: '确认删除项目？',
+      content: `“${item.name}”删除后将不再出现在项目列表中。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => runAction(() => api.deleteEvaluation(item.id), '项目已删除'),
+    })
+  }
 
   const load = async (p = page) => {
     setLoading(true)
@@ -65,7 +96,7 @@ export default function MobileEvaluationsPage() {
             <section className="mobile-dataset-card" key={item.id}>
               <div className="mobile-dataset-card-head">
                 <Typography.Text strong className="mobile-dataset-title">{item.name}</Typography.Text>
-                {projectStatusTag(item.status)}
+                {mobileEvaluationStatusTag(item.status)}
               </div>
               {item.description && <div className="mobile-evaluation-description">{item.description}</div>}
               <div className="mobile-dataset-meta">审核人：{item.auditorName || '—'}</div>
@@ -75,6 +106,24 @@ export default function MobileEvaluationsPage() {
                 <span>专家 {item.expertCount}</span>
                 <span>应评 {item.expectedReviewCount}</span>
                 <span>完成 {item.completedCount}</span>
+              </div>
+              <div className="mobile-evaluation-project-actions">
+                <Button icon={<EyeOutlined />} onClick={() => navigate(`/m/evaluations/${item.id}`)}>详情</Button>
+                {hasPermission(permissions.evaluationUpdate) && editableEvaluationStatuses.includes(item.status) && (
+                  <Button icon={<EditOutlined />} onClick={() => navigate(`/m/evaluations/${item.id}/edit`)}>编辑</Button>
+                )}
+                {hasPermission(permissions.evaluationPublish) && editableEvaluationStatuses.includes(item.status) && (
+                  <Button type="primary" icon={<SendOutlined />} onClick={() => confirmPublish(item)}>发布</Button>
+                )}
+                {hasPermission(permissions.evaluationSubmitReview) && submitReviewStatuses.includes(item.status) && (
+                  <Button type="primary" icon={<SendOutlined />} onClick={() => runAction(() => api.submitEvaluationReview(item.id), '已提交审核')}>提交审核</Button>
+                )}
+                {hasPermission(permissions.evaluationAuditView) && (
+                  <Button icon={<SafetyCertificateOutlined />} onClick={() => navigate(`/m/evaluations/${item.id}/audit`)}>审核</Button>
+                )}
+                {hasPermission(permissions.evaluationDelete) && editableEvaluationStatuses.includes(item.status) && (
+                  <Button danger icon={<DeleteOutlined />} onClick={() => confirmDelete(item)}>删除</Button>
+                )}
               </div>
             </section>
           ))}

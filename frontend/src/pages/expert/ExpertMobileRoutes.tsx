@@ -1,7 +1,7 @@
 import { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Result } from 'antd'
 import { useAuth } from '../../auth/AuthContext'
+import { ForbiddenResult } from '../../auth/ForbiddenResult'
 import { permissions } from '../../auth/permissions'
 import ExpertMobileLayout from '../../layouts/ExpertMobileLayout'
 import ExpertLoginPage from './ExpertLoginPage'
@@ -17,7 +17,7 @@ function RequireExpert({ children }: { children: ReactNode }) {
     return <Navigate to="/expert/login" replace state={{ from: location }} />
   }
   if (!hasPermission(permissions.evaluationReviewAssignedView)) {
-    return <Result status="403" title="没有权限" subTitle="当前账号未开通专家评估权限。" />
+    return <ForbiddenResult subTitle="当前账号未开通专家评估权限。" loginPath="/expert/login" />
   }
   return <>{children}</>
 }

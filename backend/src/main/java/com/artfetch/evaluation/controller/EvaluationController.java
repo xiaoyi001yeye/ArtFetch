@@ -1,6 +1,7 @@
 package com.artfetch.evaluation.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.artfetch.auth.support.PermissionCodes;
 import com.artfetch.dto.PageResult;
 import com.artfetch.evaluation.dto.*;
@@ -127,6 +128,11 @@ public class EvaluationController {
     }
 
     @GetMapping("/{evaluationId}/artworks/{artworkId}/reviews")
+    @SaCheckPermission(value = {
+            PermissionCodes.EVALUATION_VIEW,
+            PermissionCodes.EVALUATION_RESULT_VIEW,
+            PermissionCodes.EVALUATION_AUDIT_VIEW
+    }, mode = SaMode.OR)
     public ResponseEntity<ArtworkReviewSummaryDto> reviewSummary(@PathVariable Long evaluationId,
                                                                  @PathVariable Long artworkId) {
         return ResponseEntity.ok(expertReviewService.getArtworkReviewSummary(evaluationId, artworkId));
@@ -139,17 +145,24 @@ public class EvaluationController {
     }
 
     @GetMapping("/{id}/audit-records")
+    @SaCheckPermission(value = {
+            PermissionCodes.EVALUATION_VIEW,
+            PermissionCodes.EVALUATION_AUDIT_VIEW,
+            PermissionCodes.EVALUATION_AUDIT_HISTORY_VIEW
+    }, mode = SaMode.OR)
     public ResponseEntity<List<EvaluationAuditRecordDto>> auditRecords(@PathVariable Long id) {
         return ResponseEntity.ok(auditService.listRecords(id));
     }
 
     @PostMapping("/{id}/audit/approve")
+    @SaCheckPermission(PermissionCodes.EVALUATION_AUDIT_APPROVE)
     public ResponseEntity<EvaluationProjectDto> approve(@PathVariable Long id,
                                                         @RequestBody(required = false) AuditCommentRequest request) {
         return ResponseEntity.ok(auditService.approve(id, request));
     }
 
     @PostMapping("/{id}/expert-reviews/{reviewId}/audit/reject")
+    @SaCheckPermission(PermissionCodes.EVALUATION_AUDIT_REJECT_REVIEW)
     public ResponseEntity<EvaluationProjectDto> rejectReview(@PathVariable Long id,
                                                              @PathVariable Long reviewId,
                                                              @Valid @RequestBody RejectExpertReviewRequest request) {

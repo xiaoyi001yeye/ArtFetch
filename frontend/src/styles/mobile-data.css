@@ -549,6 +549,53 @@
   margin-top: 12px;
 }
 
+.mobile-evaluation-project-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-evaluation-project-actions .ant-btn {
+  min-height: 42px;
+}
+
+.mobile-evaluation-tabs,
+.mobile-evaluation-edit-tabs {
+  margin-top: 12px;
+}
+
+.mobile-evaluation-tabs .ant-tabs-nav,
+.mobile-evaluation-edit-tabs .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+.mobile-evaluation-tabs .ant-tabs-nav-wrap,
+.mobile-evaluation-edit-tabs .ant-tabs-nav-wrap {
+  overflow-x: auto;
+}
+
+.mobile-evaluation-result-card {
+  padding: 12px;
+  border: 1px solid #e1e5ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.mobile-evaluation-result-card .ant-btn {
+  min-height: 40px;
+  margin-top: 10px;
+}
+
+.mobile-evaluation-score {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px;
+  border-radius: 7px;
+  background: #f5f7f9;
+}
+
 .mobile-evaluation-summary {
   display: grid;
   gap: 8px;
