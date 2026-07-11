@@ -344,7 +344,7 @@ approve_project() {
   ensure_success_code 200 "刷新待审核状态" || return 1
   local ready
   ready="$(json_value '.status == "READY_FOR_REVIEW"')"
-  record_check "40 条专家评估已提交" "$ready" "status=$(json_value '.status'), completed=$(json_value '.completedCount')"
+  record_check "$((SAMPLE_SIZE * 2)) 条专家评估已提交" "$ready" "status=$(json_value '.status'), completed=$(json_value '.completedCount')"
 
   http_request POST "/evaluations/$PROJECT_ID/submit-review" "$ADMIN_TOKEN"
   ensure_success_code 200 "提交项目审核" || return 1
@@ -359,7 +359,7 @@ approve_project() {
 }
 
 create_dataset_and_download_zip() {
-  local payload check_ok generate_ok poll status code
+  local payload check_ok generate_ok poll status download_code
   payload="$("$JQ_BIN" -nc --arg name "书画模型训练标注模板V2数据集-$RUN_ID" --argjson projectId "$PROJECT_ID" '{name:$name,sourceEvaluationId:$projectId,aggregationStrategy:"AVERAGE_ALL_EXPERTS"}')"
   http_request POST "/auto-evaluation/datasets" "$ADMIN_TOKEN" "$payload"
   ensure_success_code 200 "创建训练数据集" || return 1
@@ -400,9 +400,9 @@ create_dataset_and_download_zip() {
   ZIP_PATH="$OUTPUT_DIR/artfetch-training-dataset-$DATASET_ID.zip"
   local tmp_file
   tmp_file="$(mktemp)"
-  code="$("$CURL_BIN" -sS -L -o "$tmp_file" -w '%{http_code}' "$BASE_URL/auto-evaluation/datasets/$DATASET_ID/download" -H "Authorization: Bearer $ADMIN_TOKEN")"
-  if [ "$code" -ne 200 ]; then
-    append_failure "下载训练包：HTTP $code，响应：$(cat "$tmp_file")"
+  download_code="$("$CURL_BIN" -sS -L -o "$tmp_file" -w '%{http_code}' "$BASE_URL/auto-evaluation/datasets/$DATASET_ID/download" -H "Authorization: Bearer $ADMIN_TOKEN")"
+  if [ "$download_code" -ne 200 ]; then
+    append_failure "下载训练包：HTTP ${download_code}，响应：$(cat "$tmp_file")"
     rm -f "$tmp_file"
     return 1
   fi
@@ -629,7 +629,7 @@ run_scenario() {
   assert_builtin_template_v2 || return 1
   create_users || return 1
   select_artworks || return 1
-  record_check "选择 20 件作品" "$([ "$("$JQ_BIN" 'length' <<< "$ARTWORK_IDS_JSON")" -eq "$SAMPLE_SIZE" ] && echo true || echo false)" "artworkIds=$(printf '%s' "$ARTWORK_IDS_JSON" | "$JQ_BIN" -c '.')"
+  record_check "选择 ${SAMPLE_SIZE} 件作品" "$([ "$("$JQ_BIN" 'length' <<< "$ARTWORK_IDS_JSON")" -eq "$SAMPLE_SIZE" ] && echo true || echo false)" "artworkIds=$(printf '%s' "$ARTWORK_IDS_JSON" | "$JQ_BIN" -c '.')"
   create_project || return 1
   approve_project || return 1
   create_dataset_and_download_zip || return 1

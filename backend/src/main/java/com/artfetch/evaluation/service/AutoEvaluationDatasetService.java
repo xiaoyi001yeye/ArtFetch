@@ -287,7 +287,7 @@ public class AutoEvaluationDatasetService {
         return AutoEvaluationDatasetDto.from(datasetRepository.save(dataset));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Resource downloadZip(Long datasetId) {
         dataScopeService.requirePermission(PermissionCodes.AUTO_EVALUATION_DATASET_EXPORT);
         AutoEvaluationDataset dataset = requireDataset(datasetId);
@@ -312,7 +312,7 @@ public class AutoEvaluationDatasetService {
     private void generatePackage(Long datasetId) {
         try {
             AutoEvaluationDataset dataset = datasetRepository.findById(datasetId).orElseThrow();
-            CheckResult check = buildCheckResult(dataset);
+            CheckResult check = buildCheckResult(dataset, false);
             Path root = Paths.get(appProperties.getAutoEvaluation().getDatasetStoragePath()).toAbsolutePath().normalize();
             Path datasetDir = root.resolve("dataset-" + datasetId);
             Path workingDir = root.resolve("working-" + datasetId + "-" + System.currentTimeMillis());
@@ -393,7 +393,11 @@ public class AutoEvaluationDatasetService {
     }
 
     private CheckResult buildCheckResult(AutoEvaluationDataset dataset) {
-        requireSourceProject(dataset.getSourceEvaluationId());
+        return buildCheckResult(dataset, true);
+    }
+
+    private CheckResult buildCheckResult(AutoEvaluationDataset dataset, boolean enforceAccess) {
+        requireSourceProject(dataset.getSourceEvaluationId(), enforceAccess);
         List<Long> selectedArtworkIds = selectionRepository.findByDatasetIdOrderByIdAsc(dataset.getId()).stream()
                 .map(AutoEvaluationDatasetArtwork::getArtworkId)
                 .toList();
@@ -515,9 +519,15 @@ public class AutoEvaluationDatasetService {
     }
 
     private EvaluationProject requireSourceProject(Long evaluationId) {
+        return requireSourceProject(evaluationId, true);
+    }
+
+    private EvaluationProject requireSourceProject(Long evaluationId, boolean enforceAccess) {
         EvaluationProject project = projectRepository.findById(evaluationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "来源评估项目不存在"));
-        evaluationAccessService.requireProjectView(project);
+        if (enforceAccess) {
+            evaluationAccessService.requireProjectView(project);
+        }
         if (project.getDeletedAt() != null
                 || project.getStatus() != EvaluationProjectStatus.COMPLETED
                 || project.getAuditResult() != EvaluationAuditResult.APPROVED) {
@@ -727,19 +737,24 @@ public class AutoEvaluationDatasetService {
             return;
         }
         if (hasText(artwork.getHdImagePath())) {
-            Files.copy(resolvePath(artwork.getHdImagePath()), target, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(resolveStoredImagePath(artwork.getHdImagePath()), target, StandardCopyOption.REPLACE_EXISTING);
             return;
         }
         if (hasText(artwork.getOriginalImagePath())) {
-            Files.copy(resolvePath(artwork.getOriginalImagePath()), target, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(resolveStoredImagePath(artwork.getOriginalImagePath()), target, StandardCopyOption.REPLACE_EXISTING);
             return;
         }
         throw new IllegalStateException("作品缺少训练图片: " + artwork.getId());
     }
 
-    private Path resolvePath(String value) {
+    private Path resolveStoredImagePath(String value) {
         Path path = Paths.get(value);
-        return path.isAbsolute() ? path : Paths.get("").toAbsolutePath().resolve(path).normalize();
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        return Paths.get(appProperties.getImage().getStoragePath()).toAbsolutePath().normalize()
+                .resolve(path)
+                .normalize();
     }
 
     private String extensionFor(Artwork artwork) {
