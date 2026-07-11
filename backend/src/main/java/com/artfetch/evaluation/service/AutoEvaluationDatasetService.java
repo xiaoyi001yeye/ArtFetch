@@ -12,7 +12,6 @@ import com.artfetch.entity.ObjectStorageConfig;
 import com.artfetch.evaluation.dto.*;
 import com.artfetch.evaluation.entity.*;
 import com.artfetch.evaluation.repository.*;
-import com.artfetch.evaluation.support.CalligraphyTrainingTemplate;
 import com.artfetch.repository.ArtworkRepository;
 import com.artfetch.service.HdImageObjectStorageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,9 +43,9 @@ import java.util.zip.ZipOutputStream;
 @RequiredArgsConstructor
 public class AutoEvaluationDatasetService {
 
-    private static final String CURRENCY = "CNY";
     private static final Set<ExpertReviewStatus> COMPLETED_REVIEW_STATUSES =
             EnumSet.of(ExpertReviewStatus.SUBMITTED, ExpertReviewStatus.RESUBMITTED);
+    private static final String VALUATION_LOG_FIELD = "valuation_log";
 
     private final AutoEvaluationDatasetRepository datasetRepository;
     private final AutoEvaluationDatasetArtworkRepository selectionRepository;
@@ -101,7 +100,7 @@ public class AutoEvaluationDatasetService {
     public AutoEvaluationDatasetDto create(CreateAutoEvaluationDatasetRequest request) {
         dataScopeService.requirePermission(PermissionCodes.AUTO_EVALUATION_DATASET_CREATE);
         EvaluationProject project = requireSourceProject(request.sourceEvaluationId());
-        EvaluationMetricTemplate template = requireTrainingTemplate();
+        EvaluationMetricTemplate template = resolveSourceTemplate(project.getId()).orElse(null);
         AutoEvaluationAggregationStrategy strategy = parseStrategy(request.aggregationStrategy());
         EvaluationProjectExpert selectedExpert = resolveSelectedExpert(project.getId(), strategy, request.selectedExpertId());
         CurrentUserDto currentUser = currentUserService.currentUser();
@@ -110,8 +109,10 @@ public class AutoEvaluationDatasetService {
         dataset.setName(request.name().trim());
         dataset.setSourceEvaluationId(project.getId());
         dataset.setSourceEvaluationName(project.getName());
-        dataset.setTemplateId(template.getId());
-        dataset.setTemplateCode(template.getCode());
+        if (template != null) {
+            dataset.setTemplateId(template.getId());
+            dataset.setTemplateCode(template.getCode());
+        }
         dataset.setAggregationStrategy(strategy);
         if (selectedExpert != null) {
             dataset.setSelectedExpertId(selectedExpert.getExpertId());
@@ -405,7 +406,7 @@ public class AutoEvaluationDatasetService {
         Map<Long, List<ExpertReviewScore>> scoresByReview = reviewIds.isEmpty()
                 ? Map.of()
                 : scoreRepository.findByReviewIdIn(reviewIds).stream().collect(Collectors.groupingBy(ExpertReviewScore::getReviewId));
-        Map<Long, EvaluationProjectMetric> trainingMetrics = trainingMetrics(dataset.getSourceEvaluationId());
+        List<EvaluationProjectMetric> trainingMetrics = exportableMetrics(dataset.getSourceEvaluationId());
 
         List<SampleBuild> samples = new ArrayList<>();
         List<AutoEvaluationDatasetSkippedSampleDto> skipped = new ArrayList<>();
@@ -442,7 +443,7 @@ public class AutoEvaluationDatasetService {
                                         Artwork artwork,
                                         List<ExpertReview> reviews,
                                         Map<Long, List<ExpertReviewScore>> scoresByReview,
-                                        Map<Long, EvaluationProjectMetric> trainingMetrics) {
+                                        List<EvaluationProjectMetric> trainingMetrics) {
         List<String> reasons = new ArrayList<>();
         List<String> missingMetricCodes = new ArrayList<>();
         if (imageSourceType(artwork).equals("NONE")) {
@@ -467,16 +468,8 @@ public class AutoEvaluationDatasetService {
             reasons.add("MISSING_FINAL_ESTIMATE_AMOUNT");
         }
 
-        Map<String, List<Double>> valuesByCode = new LinkedHashMap<>();
-        for (String code : CalligraphyTrainingTemplate.METRIC_CODES) {
-            EvaluationProjectMetric metric = trainingMetrics.values().stream()
-                    .filter(item -> code.equals(item.getCode()))
-                    .findFirst()
-                    .orElse(null);
-            if (metric == null) {
-                missingMetricCodes.add(code);
-                continue;
-            }
+        Map<String, List<Double>> valuesByExportField = new LinkedHashMap<>();
+        for (EvaluationProjectMetric metric : trainingMetrics) {
             List<Double> values = eligibleReviews.stream()
                     .map(review -> scoresByReview.getOrDefault(review.getId(), List.of()).stream()
                             .filter(score -> Objects.equals(score.getProjectMetricId(), metric.getId()))
@@ -487,9 +480,9 @@ public class AutoEvaluationDatasetService {
                     .filter(Objects::nonNull)
                     .toList();
             if (values.size() != eligibleReviews.size() || values.isEmpty()) {
-                missingMetricCodes.add(code);
+                missingMetricCodes.add(metric.getCode());
             } else {
-                valuesByCode.put(code, values);
+                valuesByExportField.put(metric.getExportField(), values);
             }
         }
         if (!missingMetricCodes.isEmpty()) {
@@ -509,14 +502,15 @@ public class AutoEvaluationDatasetService {
         }
 
         Map<String, Double> features = new LinkedHashMap<>();
-        features.put("brush", average(valuesByCode.get("calligraphy_brush")));
-        features.put("composition", average(valuesByCode.get("calligraphy_composition")));
-        features.put("ink", average(valuesByCode.get("calligraphy_ink")));
-        features.put("color", average(valuesByCode.get("calligraphy_color")));
-        features.put("technique", average(valuesByCode.get("calligraphy_technique")));
+        for (EvaluationProjectMetric metric : trainingMetrics) {
+            features.put(metric.getExportField(), average(valuesByExportField.get(metric.getExportField())));
+        }
         BigDecimal averageAmount = amounts.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
                 .divide(BigDecimal.valueOf(amounts.size()), 6, java.math.RoundingMode.HALF_UP);
-        features.put("valuation_log", Math.log(averageAmount.doubleValue()));
+        features.put(VALUATION_LOG_FIELD, amounts.stream()
+                .mapToDouble(amount -> Math.log(amount.doubleValue()))
+                .average()
+                .orElseThrow());
         return new SampleOrSkip(new SampleBuild(artwork, imageSourceType(artwork), eligibleReviews, averageAmount, features), null);
     }
 
@@ -529,7 +523,7 @@ public class AutoEvaluationDatasetService {
                 || project.getAuditResult() != EvaluationAuditResult.APPROVED) {
             throw new IllegalStateException("只能从审核通过且已完成的评估项目生成训练数据集");
         }
-        validateTrainingMetrics(project.getId());
+        validateExportableMetrics(project.getId());
         return project;
     }
 
@@ -544,41 +538,58 @@ public class AutoEvaluationDatasetService {
 
     private boolean hasTrainingTemplateMetrics(EvaluationProject project) {
         try {
-            validateTrainingMetrics(project.getId());
+            validateExportableMetrics(project.getId());
             return true;
         } catch (Exception e) {
             return false;
         }
     }
 
-    private EvaluationMetricTemplate requireTrainingTemplate() {
-        return templateRepository.findByCode(CalligraphyTrainingTemplate.TEMPLATE_CODE)
-                .orElseThrow(() -> new IllegalStateException("系统内置书画训练模板未初始化"));
+    private void validateExportableMetrics(Long evaluationId) {
+        exportableMetrics(evaluationId);
     }
 
-    private void validateTrainingMetrics(Long evaluationId) {
-        EvaluationMetricTemplate template = requireTrainingTemplate();
-        Map<String, EvaluationProjectMetric> metrics = trainingMetrics(evaluationId).values().stream()
-                .collect(Collectors.toMap(EvaluationProjectMetric::getCode, Function.identity()));
-        for (String code : CalligraphyTrainingTemplate.METRIC_CODES) {
-            EvaluationProjectMetric metric = metrics.get(code);
-            if (metric == null || !Objects.equals(metric.getSourceTemplateId(), template.getId())) {
-                throw new IllegalStateException("评估项目未使用系统内置书画训练标注模板");
+    private List<EvaluationProjectMetric> exportableMetrics(Long evaluationId) {
+        List<EvaluationProjectMetric> metrics = metricRepository.findByEvaluationIdOrderBySortOrderAscIdAsc(evaluationId).stream()
+                .filter(this::isNumericMetric)
+                .toList();
+        if (metrics.isEmpty()) {
+            throw new IllegalStateException("评估项目没有可导出的数值型指标");
+        }
+        Set<String> exportFields = new LinkedHashSet<>();
+        for (EvaluationProjectMetric metric : metrics) {
+            String exportField = nullToEmpty(metric.getExportField()).trim();
+            if (exportField.isBlank()) {
+                throw new IllegalStateException("评估指标缺少导出字段: " + metric.getCode());
             }
-            if (!"numeric".equalsIgnoreCase(nullToEmpty(metric.getScoreType()))
-                    || !Objects.equals(metric.getMinScore(), 0.0)
-                    || !Objects.equals(metric.getMaxScore(), 10.0)
-                    || !Objects.equals(metric.getScoreStep(), 0.1)
-                    || !metric.isRequired()) {
-                throw new IllegalStateException("书画训练指标配置不符合 0-10/0.1/必填要求: " + code);
+            if (VALUATION_LOG_FIELD.equals(exportField)) {
+                throw new IllegalStateException("评估指标导出字段不能使用保留字段: " + VALUATION_LOG_FIELD);
+            }
+            if (!exportFields.add(exportField)) {
+                throw new IllegalStateException("评估项目存在重复导出字段: " + exportField);
             }
         }
+        return metrics;
     }
 
-    private Map<Long, EvaluationProjectMetric> trainingMetrics(Long evaluationId) {
-        return metricRepository.findByEvaluationIdOrderBySortOrderAscIdAsc(evaluationId).stream()
-                .filter(metric -> CalligraphyTrainingTemplate.METRIC_CODES.contains(metric.getCode()))
-                .collect(Collectors.toMap(EvaluationProjectMetric::getId, Function.identity()));
+    private Optional<EvaluationMetricTemplate> resolveSourceTemplate(Long evaluationId) {
+        List<Long> templateIds = exportableMetrics(evaluationId).stream()
+                .map(EvaluationProjectMetric::getSourceTemplateId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (templateIds.size() != 1) {
+            return Optional.empty();
+        }
+        return templateRepository.findById(templateIds.get(0));
+    }
+
+    private boolean isNumericMetric(EvaluationProjectMetric metric) {
+        String scoreType = nullToEmpty(metric.getScoreType());
+        String inputComponent = nullToEmpty(metric.getInputComponent());
+        return "numeric".equalsIgnoreCase(scoreType)
+                || "number".equalsIgnoreCase(scoreType)
+                || "input-number".equalsIgnoreCase(inputComponent);
     }
 
     private EvaluationProjectExpert resolveSelectedExpert(Long evaluationId,

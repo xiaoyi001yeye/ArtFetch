@@ -22,6 +22,9 @@ public class EvaluationMetricDefinition {
     @Column(nullable = false, unique = true, length = 100)
     private String code;
 
+    @Column(name = "export_field", length = 100)
+    private String exportField;
+
     @Column(nullable = false, length = 100)
     private String name;
 

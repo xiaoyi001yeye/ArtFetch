@@ -106,6 +106,7 @@ const toMetricConfig = (definition: EvaluationMetricDefinition, sortOrder: numbe
   sourceMetricDefinitionId: definition.id,
   sourceVersion: definition.version,
   code: definition.code,
+  exportField: definition.exportField,
   name: definition.name,
   description: definition.description,
   category: definition.category,

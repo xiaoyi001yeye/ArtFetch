@@ -341,6 +341,7 @@ public class EvaluationProjectService {
             entity.setSourceTemplateId(metric.sourceTemplateId());
             entity.setSourceVersion(metric.sourceVersion());
             entity.setCode(metric.code().trim());
+            entity.setExportField(blankToNull(metric.exportField()));
             entity.setName(metric.name().trim());
             entity.setDescription(blankToNull(metric.description()));
             entity.setCategory(blankToNull(metric.category()));
@@ -357,7 +358,13 @@ public class EvaluationProjectService {
             entity.setSortOrder(metric.sortOrder() == null ? metricEntities.size() + 1 : metric.sortOrder());
             if (entity.getSourceMetricDefinitionId() != null) {
                 metricDefinitionRepository.findById(entity.getSourceMetricDefinitionId())
-                        .ifPresent(definition -> entity.setSourceVersion(definition.getVersion()));
+                        .ifPresent(definition -> {
+                            entity.setSourceVersion(definition.getVersion());
+                            entity.setExportField(definition.getExportField());
+                        });
+            }
+            if (entity.getExportField() == null) {
+                throw new IllegalArgumentException("评估指标缺少导出字段: " + entity.getName());
             }
             metricEntities.add(entity);
         }

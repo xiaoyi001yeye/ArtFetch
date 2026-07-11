@@ -49,6 +49,7 @@ public class SchemaMaintenanceService {
         ensureArtworkDescriptionSchema();
         ensureArtworkTransactionPriceSchema();
         ensureObjectStorageSchema();
+        ensureEvaluationMetricExportFieldSchema();
 
         int removedDuplicates = jdbcTemplate.update("""
                 delete from artworks a
@@ -146,6 +147,38 @@ public class SchemaMaintenanceService {
         jdbcTemplate.execute("create index if not exists idx_artworks_hd_storage_type on artworks (hd_image_storage_type)");
         jdbcTemplate.execute("create index if not exists idx_artworks_hd_migration_status on artworks (hd_image_migration_status)");
         jdbcTemplate.execute("create index if not exists idx_artworks_hd_object_key on artworks (hd_image_object_key)");
+    }
+
+    private void ensureEvaluationMetricExportFieldSchema() {
+        jdbcTemplate.execute("alter table evaluation_metric_definitions add column if not exists export_field varchar(100)");
+        jdbcTemplate.execute("""
+                update evaluation_metric_definitions
+                set export_field = lower(regexp_replace(code, '[^a-zA-Z0-9_]+', '_', 'g'))
+                where export_field is null or btrim(export_field) = ''
+                """);
+        jdbcTemplate.execute("alter table evaluation_metric_definitions alter column export_field set not null");
+        jdbcTemplate.execute("create unique index if not exists uk_evaluation_metric_definition_export_field on evaluation_metric_definitions (export_field)");
+
+        jdbcTemplate.execute("alter table evaluation_metric_template_items add column if not exists export_field_snapshot varchar(100)");
+        jdbcTemplate.execute("""
+                update evaluation_metric_template_items
+                set export_field_snapshot = coalesce(
+                    (select d.export_field from evaluation_metric_definitions d where d.id = metric_definition_id),
+                    lower(regexp_replace(code_snapshot, '[^a-zA-Z0-9_]+', '_', 'g'))
+                )
+                where export_field_snapshot is null or btrim(export_field_snapshot) = ''
+                """);
+
+        jdbcTemplate.execute("alter table evaluation_project_metrics add column if not exists export_field varchar(100)");
+        jdbcTemplate.execute("""
+                update evaluation_project_metrics
+                set export_field = coalesce(
+                    (select d.export_field from evaluation_metric_definitions d where d.id = source_metric_definition_id),
+                    lower(regexp_replace(code, '[^a-zA-Z0-9_]+', '_', 'g'))
+                )
+                where export_field is null or btrim(export_field) = ''
+                """);
+        jdbcTemplate.execute("alter table evaluation_project_metrics alter column export_field set not null");
     }
 
     private void ensureMaintenanceFlagsTable() {

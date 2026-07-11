@@ -83,6 +83,7 @@ export default function EvaluationMetricsPage() {
   const columns: ColumnsType<EvaluationMetricDefinition> = [
     { title: '名称', dataIndex: 'name', width: 160 },
     { title: '编码', dataIndex: 'code', width: 180 },
+    { title: '导出字段', dataIndex: 'exportField', width: 160 },
     { title: '分类', dataIndex: 'category', width: 120, render: (v) => v || '—' },
     { title: '评分类型', dataIndex: 'scoreType', width: 100, render: (v) => v || '—' },
     { title: '输入控件', dataIndex: 'inputComponent', width: 120, render: (v) => getInputComponentLabel(v) },
@@ -108,9 +109,9 @@ export default function EvaluationMetricsPage() {
       render: (_, record) => (
         <Space>
           {hasPermission(permissions.evaluationMetricUpdate) && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button>
+            <Button size="small" icon={<EditOutlined />} disabled={record.builtIn} onClick={() => openEdit(record)}>编辑</Button>
           )}
-          {hasPermission(permissions.evaluationMetricDisable) && (
+          {hasPermission(permissions.evaluationMetricDisable) && !record.builtIn && (
             <Popconfirm
               title="确认删除该指标？"
               onConfirm={async () => {
@@ -181,6 +182,17 @@ export default function EvaluationMetricsPage() {
             </Form.Item>
             <Form.Item name="code" label="编码" rules={[{ required: true, message: '请输入编码' }]} style={{ flex: 1 }}>
               <Input disabled={Boolean(editing)} />
+            </Form.Item>
+            <Form.Item
+              name="exportField"
+              label="导出字段"
+              rules={[
+                { required: true, message: '请输入导出字段' },
+                { pattern: /^[a-z][a-z0-9_]*$/, message: '仅支持小写字母、数字和下划线，且必须以字母开头' },
+              ]}
+              style={{ flex: 1 }}
+            >
+              <Input placeholder="如 craftsmanship" />
             </Form.Item>
           </Space>
           <Space style={{ width: '100%' }} align="start">

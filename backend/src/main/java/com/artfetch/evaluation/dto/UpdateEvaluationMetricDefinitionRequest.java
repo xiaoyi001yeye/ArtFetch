@@ -3,6 +3,7 @@ package com.artfetch.evaluation.dto;
 import jakarta.validation.constraints.NotBlank;
 
 public record UpdateEvaluationMetricDefinitionRequest(
+        @NotBlank String exportField,
         @NotBlank String name,
         String description,
         String category,

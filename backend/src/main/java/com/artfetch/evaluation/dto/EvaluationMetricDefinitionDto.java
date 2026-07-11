@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 public record EvaluationMetricDefinitionDto(
         Long id,
         String code,
+        String exportField,
         String name,
         String description,
         String category,
@@ -35,6 +36,7 @@ public record EvaluationMetricDefinitionDto(
         return new EvaluationMetricDefinitionDto(
                 item.getId(),
                 item.getCode(),
+                item.getExportField(),
                 item.getName(),
                 item.getDescription(),
                 item.getCategory(),

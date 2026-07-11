@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 
 public record CreateEvaluationMetricDefinitionRequest(
         @NotBlank String code,
+        @NotBlank String exportField,
         @NotBlank String name,
         String description,
         String category,

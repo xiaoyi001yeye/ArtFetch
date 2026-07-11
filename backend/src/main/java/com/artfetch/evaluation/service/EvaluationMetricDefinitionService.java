@@ -15,10 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class EvaluationMetricDefinitionService {
+    private static final Pattern EXPORT_FIELD_PATTERN = Pattern.compile("^[a-z][a-z0-9_]*$");
 
     private final EvaluationMetricDefinitionRepository repository;
     private final CurrentUserService currentUserService;
@@ -53,10 +56,12 @@ public class EvaluationMetricDefinitionService {
         if (repository.findByCode(code).isPresent()) {
             throw new IllegalArgumentException("指标编码已存在");
         }
+        String exportField = normalizeExportField(request.exportField());
+        ensureExportFieldUnique(exportField, null);
         EvaluationMetricDefinition item = new EvaluationMetricDefinition();
         item.setCode(code);
         item.setCreatedBy(currentUserService.currentUser().displayName());
-        apply(item, request.name(), request.description(), request.category(), request.applicableArtworkTypes(),
+        apply(item, exportField, request.name(), request.description(), request.category(), request.applicableArtworkTypes(),
                 request.scoreType(), request.minScore(), request.maxScore(), request.scoreStep(), request.defaultWeight(),
                 request.required(), request.inputComponent(), request.optionValues(), request.scoringGuide(), request.scoringRubric(), request.unit(),
                 request.tags(), true, request.sortOrder(), false);
@@ -69,7 +74,9 @@ public class EvaluationMetricDefinitionService {
         if (item.isBuiltIn()) {
             throw new IllegalStateException("系统内置评估指标不能编辑");
         }
-        apply(item, request.name(), request.description(), request.category(), request.applicableArtworkTypes(),
+        String exportField = normalizeExportField(request.exportField());
+        ensureExportFieldUnique(exportField, id);
+        apply(item, exportField, request.name(), request.description(), request.category(), request.applicableArtworkTypes(),
                 request.scoreType(), request.minScore(), request.maxScore(), request.scoreStep(), request.defaultWeight(),
                 request.required(), request.inputComponent(), request.optionValues(), request.scoringGuide(), request.scoringRubric(), request.unit(),
                 request.tags(), request.enabled(), request.sortOrder(), true);
@@ -91,6 +98,7 @@ public class EvaluationMetricDefinitionService {
     }
 
     private void apply(EvaluationMetricDefinition item,
+                       String exportField,
                        String name,
                        String description,
                        String category,
@@ -110,6 +118,7 @@ public class EvaluationMetricDefinitionService {
                        Boolean enabled,
                        Integer sortOrder,
                        boolean bumpVersion) {
+        item.setExportField(exportField);
         item.setName(name.trim());
         item.setDescription(blankToNull(description));
         item.setCategory(blankToNull(category));
@@ -135,5 +144,24 @@ public class EvaluationMetricDefinitionService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String normalizeExportField(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("导出字段不能为空");
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (!EXPORT_FIELD_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("导出字段只能使用英文小写字母、数字和下划线，且必须以字母开头");
+        }
+        return normalized;
+    }
+
+    private void ensureExportFieldUnique(String exportField, Long currentId) {
+        repository.findByExportField(exportField).ifPresent(existing -> {
+            if (currentId == null || !existing.getId().equals(currentId)) {
+                throw new IllegalArgumentException("导出字段已存在");
+            }
+        });
     }
 }
