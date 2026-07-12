@@ -30,6 +30,9 @@ public class EvaluationMetricTemplateItem {
     @Column(name = "code_snapshot", length = 100)
     private String codeSnapshot;
 
+    @Column(name = "export_field_snapshot", length = 100)
+    private String exportFieldSnapshot;
+
     @Column(name = "name_snapshot", nullable = false, length = 100)
     private String nameSnapshot;
 

@@ -8,6 +8,7 @@ public record MetricConfigRequest(
         Long sourceTemplateId,
         Integer sourceVersion,
         @NotBlank String code,
+        @NotBlank String exportField,
         @NotBlank String name,
         String description,
         String category,

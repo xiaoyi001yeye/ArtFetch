@@ -17,6 +17,7 @@ const toMetricConfig = (definition: EvaluationMetricDefinition, sortOrder: numbe
   sourceMetricDefinitionId: definition.id,
   sourceVersion: definition.version,
   code: definition.code,
+  exportField: definition.exportField,
   name: definition.name,
   description: definition.description,
   category: definition.category,
@@ -126,6 +127,7 @@ export default function EvaluationTemplatesPage() {
 
   const columns: ColumnsType<EvaluationMetricTemplate> = [
     { title: '模板名称', dataIndex: 'name', width: 220 },
+    { title: '编码', dataIndex: 'code', width: 180, render: (v) => v || '—' },
     { title: '说明', dataIndex: 'description', render: (v) => v || '—' },
     { title: '指标数', dataIndex: 'itemCount', width: 90 },
     {
@@ -140,9 +142,9 @@ export default function EvaluationTemplatesPage() {
       render: (_, record) => (
         <Space>
           {hasPermission(permissions.evaluationTemplateUpdate) && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button>
+            <Button size="small" icon={<EditOutlined />} disabled={record.builtIn} onClick={() => openEdit(record)}>编辑</Button>
           )}
-          {hasPermission(permissions.evaluationTemplateDisable) && (
+          {hasPermission(permissions.evaluationTemplateDisable) && !record.builtIn && (
             <Popconfirm
               title="确认删除该模板？"
               onConfirm={async () => {
@@ -226,6 +228,7 @@ export default function EvaluationTemplatesPage() {
               dataSource={items}
               columns={[
                 { title: '名称', dataIndex: 'name', width: 180 },
+                { title: '导出字段', dataIndex: 'exportField', width: 160 },
                 {
                   title: '必填',
                   width: 90,

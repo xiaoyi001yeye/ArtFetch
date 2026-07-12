@@ -101,6 +101,7 @@ public class EvaluationMetricTemplateService {
             entity.setMetricDefinitionId(item.sourceMetricDefinitionId());
             entity.setMetricDefinitionVersion(item.sourceVersion());
             entity.setCodeSnapshot(item.code().trim());
+            entity.setExportFieldSnapshot(blankToNull(item.exportField()));
             entity.setNameSnapshot(item.name().trim());
             entity.setDescriptionSnapshot(blankToNull(item.description()));
             entity.setCategorySnapshot(blankToNull(item.category()));
@@ -117,7 +118,13 @@ public class EvaluationMetricTemplateService {
             entity.setSortOrder(item.sortOrder() == null ? 0 : item.sortOrder());
             if (entity.getMetricDefinitionId() != null) {
                 definitionRepository.findById(entity.getMetricDefinitionId())
-                        .ifPresent(definition -> entity.setMetricDefinitionVersion(definition.getVersion()));
+                        .ifPresent(definition -> {
+                            entity.setMetricDefinitionVersion(definition.getVersion());
+                            entity.setExportFieldSnapshot(definition.getExportField());
+                        });
+            }
+            if (entity.getExportFieldSnapshot() == null) {
+                throw new IllegalArgumentException("模板指标缺少导出字段: " + entity.getNameSnapshot());
             }
             entities.add(entity);
         }

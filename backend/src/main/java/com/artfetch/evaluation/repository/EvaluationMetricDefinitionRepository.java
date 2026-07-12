@@ -10,6 +10,7 @@ import java.util.Optional;
 
 public interface EvaluationMetricDefinitionRepository extends JpaRepository<EvaluationMetricDefinition, Long> {
     Optional<EvaluationMetricDefinition> findByCode(String code);
+    Optional<EvaluationMetricDefinition> findByExportField(String exportField);
     Page<EvaluationMetricDefinition> findByNameContainingIgnoreCaseOrCodeContainingIgnoreCaseOrderBySortOrderAscIdAsc(
             String name, String code, Pageable pageable);
     List<EvaluationMetricDefinition> findAllByEnabledTrueOrderBySortOrderAscIdAsc();

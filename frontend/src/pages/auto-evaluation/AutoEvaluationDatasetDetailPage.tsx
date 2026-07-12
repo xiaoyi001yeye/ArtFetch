@@ -80,8 +80,12 @@ export default function AutoEvaluationDatasetDetailPage() {
 
   useEffect(() => {
     load()
-    loadArtworks(0, '')
   }, [datasetId])
+
+  useEffect(() => {
+    if (!editable) return
+    loadArtworks(0, '')
+  }, [dataset?.id, dataset?.status])
 
   useEffect(() => {
     if (dataset?.status !== 'GENERATING') return
@@ -176,7 +180,7 @@ export default function AutoEvaluationDatasetDetailPage() {
           {datasetStatusTag(dataset.status)}
         </Space>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => { load(); loadArtworks() }}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { load(); if (editable) loadArtworks() }}>刷新</Button>
           {editable && canCreate && <Button onClick={() => setSettingsOpen(true)}>编辑配置</Button>}
           {dataset.status === 'READY' && canExport && (
             <Button type="primary" icon={<DownloadOutlined />} onClick={() => api.downloadAutoEvaluationDataset(dataset.id)}>下载训练包</Button>

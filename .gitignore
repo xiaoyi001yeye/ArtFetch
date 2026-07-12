@@ -1,6 +1,7 @@
 # Java
 backend/target/
 backend/\?/
+.m2/
 *.class
 *.jar
 
@@ -24,9 +25,11 @@ frontend/dist/
 # Logs
 backend/logs/
 storage/original-images/
-docs/generated/*.md
-docs/generated/*.json
+docs/generated/**
 !docs/generated/.gitkeep
+
+# Browser automation artifacts
+.playwright-cli/
 
 # Docker volumes
 postgres_data/

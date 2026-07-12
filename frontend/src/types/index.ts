@@ -265,6 +265,7 @@ export interface MetricConfig {
   sourceTemplateId?: number
   sourceVersion?: number
   code: string
+  exportField: string
   name: string
   description?: string
   category?: string
@@ -284,6 +285,7 @@ export interface MetricConfig {
 export interface EvaluationMetricDefinition {
   id: number
   code: string
+  exportField: string
   name: string
   description?: string
   category?: string
