@@ -31,7 +31,7 @@ export default function MobileAutoEvaluationDatasetDetailPage() {
   const [artworkPage, setArtworkPage] = useState(0)
   const [keyword, setKeyword] = useState('')
   const [loading, setLoading] = useState(true)
-  const [artworksLoading, setArtworksLoading] = useState(true)
+  const [artworksLoading, setArtworksLoading] = useState(false)
   const [checking, setChecking] = useState(false)
   const [checkResult, setCheckResult] = useState<CheckAutoEvaluationDatasetResponse>()
 
@@ -70,8 +70,12 @@ export default function MobileAutoEvaluationDatasetDetailPage() {
 
   useEffect(() => {
     loadDataset()
-    loadArtworks(0, '')
   }, [datasetId])
+
+  useEffect(() => {
+    if (!editable) return
+    loadArtworks(0, '')
+  }, [dataset?.id, dataset?.status])
 
   useEffect(() => {
     if (dataset?.status !== 'GENERATING') return
@@ -170,7 +174,7 @@ export default function MobileAutoEvaluationDatasetDetailPage() {
     <MobileDataLayout title="训练集详情">
       <div className="mobile-detail-topbar">
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/m/auto-evaluation/datasets')}>返回</Button>
-        <Button icon={<ReloadOutlined />} onClick={() => { loadDataset(); loadArtworks() }}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => { loadDataset(); if (editable) loadArtworks() }}>刷新</Button>
       </div>
 
       {dataset.errorMessage && <Alert type="error" showIcon message="生成失败" description={dataset.errorMessage} className="mobile-data-alert" />}

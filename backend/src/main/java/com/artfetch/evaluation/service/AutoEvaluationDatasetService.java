@@ -154,11 +154,11 @@ public class AutoEvaluationDatasetService {
                                                                                int size) {
         AutoEvaluationDataset dataset = requireDataset(datasetId);
         requireDatasetView(dataset);
-        Page<EvaluationArtwork> evaluationArtworks = evaluationArtworkRepository.searchByEvaluationId(
-                dataset.getSourceEvaluationId(),
-                keyword == null || keyword.isBlank() ? null : keyword.trim(),
-                PageRequest.of(page, size)
-        );
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        PageRequest pageRequest = PageRequest.of(page, size);
+        Page<EvaluationArtwork> evaluationArtworks = normalizedKeyword.isBlank()
+                ? evaluationArtworkRepository.findByEvaluationIdOrderByIdAsc(dataset.getSourceEvaluationId(), pageRequest)
+                : evaluationArtworkRepository.searchByEvaluationId(dataset.getSourceEvaluationId(), normalizedKeyword, pageRequest);
         List<Long> artworkIds = evaluationArtworks.getContent().stream().map(EvaluationArtwork::getArtworkId).toList();
         Map<Long, Artwork> artworks = artworkRepository.findByIdInOrderByIdAsc(artworkIds).stream()
                 .collect(Collectors.toMap(Artwork::getId, Function.identity()));
